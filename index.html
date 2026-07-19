@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>楽天アフィリエイト自動化ツール</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --sub: #6b7280;
+    --line: #e5e7eb;
+    --brand: #bf0000;
+    --brand-dark: #990000;
+    --gold: #c8a24a;
+    --line-green: #06c755;
+    --ok: #16a34a;
+    --ng: #dc2626;
+    --warn: #d97706;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-lg: 0 10px 30px rgba(0,0,0,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  .app { max-width: 1080px; margin: 0 auto; padding: 20px 16px 80px; }
+
+  /* Header */
+  header.top {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 4px 20px;
+  }
+  header.top .logo {
+    width: 40px; height: 40px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--brand), var(--brand-dark));
+    display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 20px;
+    box-shadow: var(--shadow);
+  }
+  header.top h1 { font-size: 18px; font-weight: 800; letter-spacing: .02em; }
+  header.top p { font-size: 12px; color: var(--sub); }
+
+  /* Stepper */
+  .stepper {
+    display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap;
+    background: var(--panel); padding: 8px; border-radius: var(--radius); box-shadow: var(--shadow);
+  }
+  .step-btn {
+    flex: 1; min-width: 120px; border: none; background: transparent; cursor: pointer;
+    padding: 10px 8px; border-radius: 8px; font-size: 13px; font-weight: 700; color: var(--sub);
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    transition: all .15s; white-space: nowrap;
+  }
+  .step-btn .num {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--line); color: var(--sub);
+    display: grid; place-items: center; font-size: 11px; flex-shrink: 0;
+  }
+  .step-btn.active { background: var(--brand); color: #fff; }
+  .step-btn.active .num { background: rgba(255,255,255,.25); color: #fff; }
+  .step-btn.done .num { background: var(--ok); color: #fff; }
+
+  /* Panels */
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade .25s; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .card {
+    background: var(--panel); border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 20px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 15px; font-weight: 800; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .card h2 .tag { font-size: 11px; font-weight: 700; color: #fff; background: var(--brand); padding: 2px 8px; border-radius: 20px; }
+  .card .desc { font-size: 12px; color: var(--sub); margin-bottom: 16px; }
+
+  label.field { display: block; margin-bottom: 14px; }
+  label.field > span { display: block; font-size: 12px; font-weight: 700; margin-bottom: 6px; color: #374151; }
+  input[type=text], input[type=number], input[type=password], input[type=date], input[type=time], textarea, select {
+    width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+    font-size: 14px; font-family: inherit; color: var(--ink); background: #fff; transition: border .15s;
+  }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--brand); }
+  textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
+
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 140px; }
+
+  .btn {
+    border: none; border-radius: 8px; padding: 11px 18px; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: all .15s; font-family: inherit; display: inline-flex;
+    align-items: center; justify-content: center; gap: 8px;
+  }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--brand-dark); }
+  .btn-line { background: var(--line-green); color: #fff; }
+  .btn-ghost { background: #f3f4f6; color: #374151; }
+  .btn-ghost:hover:not(:disabled) { background: #e5e7eb; }
+  .btn-sm { padding: 6px 12px; font-size: 12px; }
+  .btn-block { width: 100%; }
+
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  /* Chips / toggles */
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    padding: 7px 14px; border-radius: 20px; border: 1px solid var(--line); background: #fff;
+    font-size: 13px; font-weight: 700; color: var(--sub); cursor: pointer; transition: all .15s;
+  }
+  .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+  /* Product cards */
+  .products { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .product {
+    border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #fff;
+    display: flex; flex-direction: column; transition: box-shadow .15s;
+  }
+  .product:hover { box-shadow: var(--shadow-lg); }
+  .product .thumb { width: 100%; height: 160px; object-fit: contain; background: #fafafa; border-bottom: 1px solid var(--line); }
+  .product .body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .product .name { font-size: 13px; font-weight: 700; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .product .meta { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
+  .badge.price { background: #fff4f4; color: var(--brand); }
+  .badge.review { background: #f0f9ff; color: #0369a1; }
+  .badge.ok { background: #f0fdf4; color: var(--ok); }
+  .badge.ng { background: #fef2f2; color: var(--ng); }
+  .product .judge { font-size: 12px; font-weight: 800; padding: 6px 10px; border-radius: 8px; text-align: center; }
+  .product .judge.pass { background: #f0fdf4; color: var(--ok); }
+  .product .judge.fail { background: #fef2f2; color: var(--ng); }
+  .product .actions { margin-top: auto; display: flex; gap: 6px; }
+
+  /* Tweet posts */
+  .posts { display: flex; flex-direction: column; gap: 12px; }
+  .post {
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: #fff;
+    cursor: pointer; transition: all .15s; position: relative;
+  }
+  .post:hover { border-color: var(--brand); }
+  .post.selected { border-color: var(--brand); background: #fffafa; box-shadow: 0 0 0 2px rgba(191,0,0,.1); }
+  .post .cat { font-size: 10px; font-weight: 800; color: var(--brand); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .post .text { font-size: 14px; white-space: pre-wrap; line-height: 1.7; }
+  .post .len { position: absolute; top: 12px; right: 14px; font-size: 11px; color: var(--sub); }
+
+  /* Image picker */
+  .imgpick { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .imgpick .im { position: relative; border: 2px solid var(--line); border-radius: 8px; overflow: hidden; cursor: pointer; aspect-ratio: 1; background: #fafafa; }
+  .imgpick .im img { width: 100%; height: 100%; object-fit: contain; }
+  .imgpick .im.sel { border-color: var(--brand); }
+  .imgpick .im .check { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; background: var(--brand); color: #fff; display: none; place-items: center; font-size: 13px; font-weight: 800; }
+  .imgpick .im.sel .check { display: grid; }
+  .imgpick .im .order { position: absolute; bottom: 4px; left: 4px; background: rgba(0,0,0,.7); color: #fff; font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+
+  /* Preview */
+  .tw-preview { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; background: #fff; }
+  .tw-preview .head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .tw-preview .avatar { width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg,#ddd,#bbb); }
+  .tw-preview .handle b { font-size: 14px; } .tw-preview .handle span { font-size: 12px; color: var(--sub); }
+  .tw-preview .tw-text { font-size: 14px; white-space: pre-wrap; margin-bottom: 10px; }
+  .tw-preview .tw-imgs { display: grid; gap: 4px; border-radius: 12px; overflow: hidden; }
+  .tw-preview .tw-imgs.n1 { grid-template-columns: 1fr; }
+  .tw-preview .tw-imgs.n2 { grid-template-columns: 1fr 1fr; }
+  .tw-preview .tw-imgs.n3 { grid-template-columns: 1fr 1fr; }
+  .tw-preview .tw-imgs img { width: 100%; height: 140px; object-fit: cover; }
+  .tw-preview .reply-connect { border-left: 2px solid var(--line); margin-left: 20px; padding: 12px 0 0 20px; margin-top: 4px; }
+
+  /* Status */
+  .status { font-size: 12px; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; display: none; }
+  .status.show { display: block; }
+  .status.info { background: #eff6ff; color: #1d4ed8; }
+  .status.err { background: #fef2f2; color: var(--ng); }
+  .status.ok { background: #f0fdf4; color: var(--ok); }
+
+  .empty { text-align: center; padding: 40px 20px; color: var(--sub); font-size: 13px; }
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .hint { font-size: 11px; color: var(--sub); margin-top: 4px; }
+  details.settings { margin-bottom: 16px; }
+  details.settings summary { cursor: pointer; font-size: 13px; font-weight: 700; color: var(--sub); padding: 8px 0; }
+  .nav-btns { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; }
+
+  .warn-box { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 12px; border-radius: 8px; font-size: 12px; margin-bottom: 12px; }
+  .kv { display: flex; gap: 8px; font-size: 12px; margin: 2px 0; } .kv b { color: #374151; }
+  code.inline { background: #f3f4f6; padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="logo">R</div>
+    <div>
+      <h1>楽天アフィリエイト自動化ツール</h1>
+      <p>リサーチ → 商品判定 → 投稿文生成 → 画像選定 → 予約</p>
+    </div>
+  </header>
+
+  <!-- Stepper -->
+  <div class="stepper" id="stepper">
+    <button class="step-btn active" data-step="1"><span class="num">1</span>リサーチ</button>
+    <button class="step-btn" data-step="2"><span class="num">2</span>商品判定</button>
+    <button class="step-btn" data-step="3"><span class="num">3</span>投稿文生成</button>
+    <button class="step-btn" data-step="4"><span class="num">4</span>画像選定</button>
+    <button class="step-btn" data-step="5"><span class="num">5</span>予約</button>
+  </div>
+
+  <!-- Global Settings -->
+  <details class="settings card">
+    <summary>⚙️ 設定（APIキー・接続先）</summary>
+    <div style="margin-top:12px">
+      <label class="field">
+        <span>Worker エンドポイント URL</span>
+        <input type="text" id="workerUrl" value="https://x-api-proxy.tamura-0528-2938.workers.dev">
+        <div class="hint">楽天API・Claude・SocialData を中継するプロキシ。通常は変更不要。</div>
+      </label>
+      <label class="field">
+        <span>Claude API キー（任意・空ならWorker側のキーを使用）</span>
+        <input type="password" id="claudeKey" placeholder="sk-ant-... （空欄でOK）">
+      </label>
+      <label class="field">
+        <span>Typefully API キー</span>
+        <input type="password" id="typefullyKey" placeholder="Typefullyの設定→APIから取得">
+        <div class="hint">⑤の自動予約に使用します。</div>
+      </label>
+      <div class="toolbar">
+        <button class="btn btn-ghost btn-sm" onclick="saveSettings()">💾 設定を保存</button>
+        <span id="settingsStatus" style="font-size:12px;color:var(--ok)"></span>
+      </div>
+    </div>
+  </details>
+
+  <!-- ===== STEP 1: リサーチ ===== -->
+  <section class="panel active" data-panel="1">
+    <div class="card">
+      <h2><span class="tag">①</span>参考投稿リサーチ</h2>
+      <p class="desc">楽天アフィリンク付きの投稿を、いいね数で絞り込んで発掘します。良い商品の当たりをつける工程です。</p>
+
+      <div class="row">
+        <label class="field" style="flex:2">
+          <span>検索キーワード</span>
+          <input type="text" id="researchKeyword" placeholder="例：マグカップ / 便利グッズ / 収納">
+        </label>
+        <label class="field">
+          <span>いいね数の下限</span>
+          <input type="number" id="minLikes" value="300" min="0" step="50">
+        </label>
+      </div>
+
+      <label class="field">
+        <span>対象プラットフォーム</span>
+        <div class="chips" id="platformChips">
+          <div class="chip on" data-platform="rakuten">楽天のみ</div>
+          <div class="chip" data-platform="amazon">Amazonのみ</div>
+          <div class="chip" data-platform="both">両方</div>
+        </div>
+      </label>
+
+      <div class="toolbar">
+        <button class="btn btn-primary" id="researchBtn" onclick="runResearch()">🔍 参考投稿を検索</button>
+      </div>
+    </div>
+
+    <div class="status" id="researchStatus"></div>
+    <div class="card" id="researchResults" style="display:none">
+      <h2>検索結果</h2>
+      <p class="desc">気になる投稿の商品を、次のステップで判定します。「商品を判定」ボタンでキーワードを引き継げます。</p>
+      <div id="tweetList"></div>
+    </div>
+
+    <div class="nav-btns">
+      <span></span>
+      <button class="btn btn-ghost" onclick="goStep(2)">スキップして商品判定へ →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 2: 商品判定 ===== -->
+  <section class="panel" data-panel="2">
+    <div class="card">
+      <h2><span class="tag">②</span>商品検索 & 条件判定</h2>
+      <p class="desc">楽天APIで商品を検索し、アフィリエイト条件を自動判定します。⭕️は採用候補、❌は条件未達です。</p>
+
+      <div class="row">
+        <label class="field" style="flex:2">
+          <span>検索キーワード</span>
+          <input type="text" id="searchKeyword" placeholder="例：マグカップ">
+        </label>
+        <label class="field">
+          <span>並び順</span>
+          <select id="sortOrder">
+            <option value="-reviewCount">レビュー数が多い順</option>
+            <option value="+itemPrice">価格が安い順</option>
+            <option value="-itemPrice">価格が高い順</option>
+            <option value="standard">標準</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="warn-box" id="conditionBox">
+        <b>判定条件（クリックで編集）</b>
+        <div class="row" style="margin-top:8px">
+          <label class="field" style="margin:0">
+            <span>レビュー数 ≥</span>
+            <input type="number" id="condReview" value="200" min="0">
+          </label>
+          <label class="field" style="margin:0">
+            <span>価格 ≤（円）</span>
+            <input type="number" id="condPrice" value="3000" min="0" step="100">
+          </label>
+          <label class="field" style="margin:0">
+            <span>在庫あり必須</span>
+            <select id="condStock"><option value="1">はい</option><option value="0">問わない</option></select>
+          </label>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn btn-primary" id="searchBtn" onclick="runProductSearch()">🛒 商品を検索・判定</button>
+        <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="onlyPass" onchange="renderProducts()"> 採用候補（⭕️）のみ表示
+        </label>
+      </div>
+    </div>
+
+    <div class="status" id="productStatus"></div>
+    <div id="productResults"></div>
+
+    <div class="nav-btns">
+      <button class="btn btn-ghost" onclick="goStep(1)">← リサーチ</button>
+      <button class="btn btn-ghost" onclick="goStep(3)">投稿文生成へ →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 3: 投稿文生成 ===== -->
+  <section class="panel" data-panel="3">
+    <div class="card">
+      <h2><span class="tag">③</span>投稿文生成</h2>
+      <p class="desc">選んだ商品の投稿文をAIが生成します。下のプロンプトは自由に編集できます（保存されます）。</p>
+
+      <div id="selectedProductBox" class="warn-box" style="background:#f0fdf4;border-color:#bbf7d0;color:#166534;display:none"></div>
+
+      <details class="settings">
+        <summary>✏️ 投稿生成プロンプトを編集</summary>
+        <label class="field" style="margin-top:10px">
+          <textarea id="genPrompt" style="min-height:300px;font-size:13px"></textarea>
+          <div class="hint">このプロンプトはブラウザに保存されます。いつでも書き換え可能です。</div>
+        </label>
+        <button class="btn btn-ghost btn-sm" onclick="savePrompt()">💾 プロンプトを保存</button>
+        <button class="btn btn-ghost btn-sm" onclick="resetPrompt()">初期値に戻す</button>
+      </details>
+
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn btn-primary" id="genBtn" onclick="runGenerate()">✨ 投稿文を生成</button>
+        <select id="genModel" style="max-width:220px">
+          <option value="claude-opus-4-8">Opus 4.8（高精度）</option>
+          <option value="claude-sonnet-5">Sonnet 5（高速）</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="status" id="genStatus"></div>
+    <div class="card" id="genResults" style="display:none">
+      <h2>生成された投稿文</h2>
+      <p class="desc">使いたい投稿をクリックで選択してください。選択後、リプ用の案内文も生成できます。</p>
+      <div class="posts" id="postList"></div>
+    </div>
+
+    <div class="nav-btns">
+      <button class="btn btn-ghost" onclick="goStep(2)">← 商品判定</button>
+      <button class="btn btn-ghost" onclick="goStep(4)">画像選定へ →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 4: 画像選定 ===== -->
+  <section class="panel" data-panel="4">
+    <div class="card">
+      <h2><span class="tag">④</span>画像選定</h2>
+      <p class="desc">メインポストに載せる画像を2〜3枚選びます。楽天の商品ページ画像を高解像度で表示しています。</p>
+      <div id="imagePickerWrap">
+        <div class="empty">先に②で商品を選び、③で投稿文を選択してください。</div>
+      </div>
+    </div>
+
+    <div class="nav-btns">
+      <button class="btn btn-ghost" onclick="goStep(3)">← 投稿文生成</button>
+      <button class="btn btn-ghost" onclick="goStep(5)">予約へ →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 5: 予約 ===== -->
+  <section class="panel" data-panel="5">
+    <div class="card">
+      <h2><span class="tag">⑤</span>投稿予約</h2>
+      <p class="desc">メインポスト（画像＋本文）とリプライ（案内＋アフィリンク＋#ad）を組み立て、Typefullyで予約します。</p>
+
+      <div id="assembleWrap">
+        <div class="empty">先に投稿文と画像を選択してください。</div>
+      </div>
+    </div>
+
+    <div class="nav-btns">
+      <button class="btn btn-ghost" onclick="goStep(4)">← 画像選定</button>
+      <span></span>
+    </div>
+  </section>
+</div>
+
+<script>
+// ============ 状態管理 ============
+const state = {
+  research: [],
+  products: [],
+  selectedProduct: null,
+  posts: [],
+  selectedPostIndex: null,
+  replyText: '',
+  images: [],       // {url, selected, order}
+  postedItems: JSON.parse(localStorage.getItem('rk_posted') || '[]'),
+};
+
+const DEFAULT_PROMPT = `あなたはX（旧Twitter）で楽天アフィリエイト商品を紹介する「共感型・女性アカウント風」の投稿を作成する専門ライターです。
+
+目的は商品の説明ではありません。読者に「欲しい」と思わせる感情を最優先にしてください。画像は添付される前提なので、文章で画像を説明しません。
+
+# 最重要ルール
+投稿は商品説明を書くものではない。なぜ自分が欲しくなったのかだけを書く。読者は説明を読むのではなく「私もそれ欲しい」と思って保存・クリックする。
+
+# 投稿構造（基本4〜6行）
+①フック：一瞬で止まる文章（待って。/ 全女子へ。/ え、なにこれ。/ 理想すぎた。）
+②共感：自分の悩み（低身長 / 脚コンプ / 子ども優先 / 荷物多い / 部屋着感 / 汗 / 収納 など）
+③解決：商品名ではなく解決だけ
+④締め：最後だけ軽く誘導（👇 / これ欲しい。/ 理想だった。）
+
+# 絶対にやらないこと
+商品の特徴を並べること（楽天1位 / 送料無料 / コットン100% / 撥水 / サイズ展開 などを本文で説明しない）。画像で見えること（色・形・デザイン・柄）は書かない。
+
+# 文体
+一文を短く。改行を多く。友達とのLINEみたいに。句読点より改行。絵文字0〜2個（👇🥹😭🫠😳）。トーンは女性20〜30代、友達に話す感じ、少しオーバー、でも広告っぽくしない。
+
+# 禁止表現
+「おすすめです」「便利です」「高品質です」「人気商品です」「〇〇が特徴です」「〇〇を採用」「楽天ランキング1位」「送料無料」「コスパ抜群」「ぜひチェックしてください」
+
+# 出力形式（必ずJSONで出力。前後に説明文やマークダウンを付けない）
+{
+  "通常版": ["...", ...10本],
+  "超バズ": ["...", ...5本（40〜80字、感情だけ）],
+  "第三者目線": ["...", ...5本（「欲しくなった」「見つけた」等、余白を残す）],
+  "ズラし型": ["...", ...5本（主語をズラす・擬人化・予想外）]
+}
+
+商品情報：
+{{PRODUCT}}`;
+
+const REPLY_PROMPT = `以下の投稿に続く、リプライ用の「商品はこちら👇」の案内文を1つだけ作ってください。
+本文の温度感に合わせ、短く自然に。絵文字は控えめ。アフィリンクや#adはこちらで付けるので含めないでください。案内文のテキストのみを出力（説明不要）。
+
+投稿本文：
+{{POST}}`;
+
+// ============ 初期化 ============
+function init() {
+  // 設定復元
+  const ws = localStorage.getItem('rk_worker'); if (ws) document.getElementById('workerUrl').value = ws;
+  const ck = localStorage.getItem('rk_claude'); if (ck) document.getElementById('claudeKey').value = ck;
+  const tk = localStorage.getItem('rk_typefully'); if (tk) document.getElementById('typefullyKey').value = tk;
+  // プロンプト復元
+  const p = localStorage.getItem('rk_prompt');
+  document.getElementById('genPrompt').value = p || DEFAULT_PROMPT;
+
+  // stepper
+  document.querySelectorAll('.step-btn').forEach(b => {
+    b.addEventListener('click', () => goStep(parseInt(b.dataset.step)));
+  });
+  // platform chips
+  document.querySelectorAll('#platformChips .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('#platformChips .chip').forEach(x => x.classList.remove('on'));
+      c.classList.add('on');
+    });
+  });
+}
+
+function goStep(n) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.dataset.panel == n));
+  document.querySelectorAll('.step-btn').forEach(b => b.classList.toggle('active', b.dataset.step == n));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (n == 4) renderImagePicker();
+  if (n == 5) renderAssemble();
+}
+
+function saveSettings() {
+  localStorage.setItem('rk_worker', document.getElementById('workerUrl').value.trim());
+  localStorage.setItem('rk_claude', document.getElementById('claudeKey').value.trim());
+  localStorage.setItem('rk_typefully', document.getElementById('typefullyKey').value.trim());
+  const s = document.getElementById('settingsStatus'); s.textContent = '✓ 保存しました';
+  setTimeout(() => s.textContent = '', 2000);
+}
+function savePrompt() {
+  localStorage.setItem('rk_prompt', document.getElementById('genPrompt').value);
+  alert('プロンプトを保存しました');
+}
+function resetPrompt() {
+  if (confirm('初期プロンプトに戻しますか？')) {
+    document.getElementById('genPrompt').value = DEFAULT_PROMPT;
+    localStorage.removeItem('rk_prompt');
+  }
+}
+
+function workerUrl() { return document.getElementById('workerUrl').value.trim().replace(/\/$/, ''); }
+function setStatus(id, msg, type) {
+  const el = document.getElementById(id);
+  el.className = 'status show ' + type; el.textContent = msg;
+}
+function clearStatus(id) { document.getElementById(id).className = 'status'; }
+
+// ============ ① リサーチ ============
+async function runResearch() {
+  const kw = document.getElementById('researchKeyword').value.trim();
+  const minLikes = parseInt(document.getElementById('minLikes').value) || 0;
+  const platform = document.querySelector('#platformChips .chip.on').dataset.platform;
+  if (!kw) { setStatus('researchStatus', 'キーワードを入力してください', 'err'); return; }
+
+  const btn = document.getElementById('researchBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>検索中...';
+  setStatus('researchStatus', 'SocialDataで検索中...', 'info');
+
+  // 楽天/アマゾンのドメインフィルタ
+  const rakutenDom = '(url:a.r10.to OR url:hb.afl.rakuten.co.jp OR url:room.rakuten.co.jp)';
+  const amazonDom = '(url:amzn.to OR url:amzn.asia OR url:amazon.co.jp)';
+  let domFilter = '';
+  if (platform === 'rakuten') domFilter = rakutenDom;
+  else if (platform === 'amazon') domFilter = amazonDom;
+  else domFilter = '(' + rakutenDom + ' OR ' + amazonDom + ')';
+
+  const query = `${kw} ${domFilter} min_faves:${minLikes} -filter:replies`;
+
+  try {
+    const res = await fetch(workerUrl() + '/search-tweets', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, count: 40 })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    let tweets = data.tweets || [];
+    // いいね数で再フィルタ＆ソート
+    tweets = tweets
+      .filter(t => (t.favorite_count || 0) >= minLikes)
+      .sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
+
+    state.research = tweets;
+    renderResearch(kw);
+    if (tweets.length === 0) setStatus('researchStatus', '条件に合う投稿が見つかりませんでした。いいね数を下げる/キーワードを変えてみてください。', 'info');
+    else clearStatus('researchStatus');
+  } catch (e) {
+    setStatus('researchStatus', 'エラー: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '🔍 参考投稿を検索';
+  }
+}
+
+function renderResearch(kw) {
+  const wrap = document.getElementById('researchResults');
+  const list = document.getElementById('tweetList');
+  wrap.style.display = 'block';
+  if (!state.research.length) { list.innerHTML = '<div class="empty">結果なし</div>'; return; }
+
+  list.innerHTML = state.research.map((t, i) => {
+    const user = t.user || {};
+    const text = (t.full_text || t.text || '').replace(/</g, '&lt;');
+    const likes = t.favorite_count || 0;
+    const rt = t.retweet_count || 0;
+    return `<div class="post" style="cursor:default">
+      <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
+        <b style="font-size:13px">@${(user.screen_name||'').replace(/</g,'')}</b>
+        <span style="font-size:12px;color:var(--sub)">❤️ ${likes.toLocaleString()} / 🔁 ${rt.toLocaleString()}</span>
+      </div>
+      <div class="text" style="font-size:13px">${text}</div>
+      <div style="margin-top:10px;display:flex;gap:6px">
+        <button class="btn btn-primary btn-sm" onclick="useForProduct('${kw.replace(/'/g,"")}')">この系統で商品を判定 →</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function useForProduct(kw) {
+  document.getElementById('searchKeyword').value = kw;
+  goStep(2);
+}
+
+// ============ ② 商品判定 ============
+async function runProductSearch() {
+  const kw = document.getElementById('searchKeyword').value.trim();
+  if (!kw) { setStatus('productStatus', 'キーワードを入力してください', 'err'); return; }
+  const sort = document.getElementById('sortOrder').value;
+
+  const btn = document.getElementById('searchBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>検索中...';
+  setStatus('productStatus', '楽天APIで検索中...', 'info');
+
+  try {
+    const body = { keyword: kw, hits: 30, availability: 1 };
+    if (sort !== 'standard') body.sort = sort;
+    const res = await fetch(workerUrl() + '/rakuten-search', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    state.products = (data.Items || []).map(it => (it.Item || it));
+    renderProducts();
+    clearStatus('productStatus');
+  } catch (e) {
+    setStatus('productStatus', 'エラー: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '🛒 商品を検索・判定';
+  }
+}
+
+function judgeProduct(p) {
+  const minReview = parseInt(document.getElementById('condReview').value) || 0;
+  const maxPrice = parseInt(document.getElementById('condPrice').value) || 999999;
+  const needStock = document.getElementById('condStock').value === '1';
+  const reasons = [];
+  let pass = true;
+  if ((p.reviewCount || 0) < minReview) { pass = false; reasons.push(`レビュー${p.reviewCount||0}件`); }
+  if ((p.itemPrice || 0) > maxPrice) { pass = false; reasons.push(`${(p.itemPrice||0).toLocaleString()}円`); }
+  if (needStock && p.availability !== 1) { pass = false; reasons.push('在庫切れ'); }
+  return { pass, reasons };
+}
+
+function renderProducts() {
+  const wrap = document.getElementById('productResults');
+  const onlyPass = document.getElementById('onlyPass').checked;
+  if (!state.products.length) { wrap.innerHTML = ''; return; }
+
+  let items = state.products.map(p => ({ p, j: judgeProduct(p) }));
+  const passCount = items.filter(x => x.j.pass).length;
+  if (onlyPass) items = items.filter(x => x.j.pass);
+
+  wrap.innerHTML = `<div class="card">
+    <h2>検索結果 <span style="font-size:12px;color:var(--sub);font-weight:600">（${state.products.length}件中 ⭕️${passCount}件が条件クリア）</span></h2>
+    <div class="products">${items.map(({p, j}) => renderProductCard(p, j)).join('')}</div>
+  </div>`;
+}
+
+function renderProductCard(p, j) {
+  const img = (p.mediumImageUrls && p.mediumImageUrls[0]) ? String(p.mediumImageUrls[0]).replace(/\?_ex=\d+x\d+/, '?_ex=300x300') : '';
+  const imgUrl = typeof img === 'object' ? img.imageUrl : img;
+  const posted = state.postedItems.includes(p.itemCode);
+  const name = (p.itemName || '').replace(/</g, '&lt;');
+  return `<div class="product">
+    <img class="thumb" src="${imgUrl}" onerror="this.style.opacity=.3" alt="">
+    <div class="body">
+      <div class="name">${name}</div>
+      <div class="meta">
+        <span class="badge price">¥${(p.itemPrice||0).toLocaleString()}</span>
+        <span class="badge review">★${(p.reviewAverage||0)} (${(p.reviewCount||0).toLocaleString()})</span>
+        <span class="badge ${p.availability===1?'ok':'ng'}">${p.availability===1?'在庫あり':'在庫切れ'}</span>
+      </div>
+      ${posted ? '<div class="warn-box" style="margin:0;padding:6px 10px">⚠️ 投稿済みの商品です</div>' : ''}
+      <div class="judge ${j.pass?'pass':'fail'}">${j.pass ? '⭕️ 採用候補' : '❌ ' + j.reasons.join(' / ')}</div>
+      <div class="actions">
+        <button class="btn ${j.pass?'btn-primary':'btn-ghost'} btn-sm btn-block" onclick='selectProduct("${p.itemCode}")'>この商品で作成 →</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function selectProduct(itemCode) {
+  const p = state.products.find(x => x.itemCode === itemCode);
+  if (!p) return;
+  state.selectedProduct = p;
+  // 画像リスト初期化（高解像度化）
+  state.images = (p.mediumImageUrls || []).map((u, i) => {
+    const url = (typeof u === 'object' ? u.imageUrl : u).replace(/\?_ex=\d+x\d+/, '?_ex=500x500');
+    return { url, selected: i < 3, order: i < 3 ? i + 1 : 0 };
+  });
+  state.posts = []; state.selectedPostIndex = null; state.replyText = '';
+  goStep(3);
+  showSelectedProduct();
+}
+
+function showSelectedProduct() {
+  const box = document.getElementById('selectedProductBox');
+  const p = state.selectedProduct;
+  if (!p) { box.style.display = 'none'; return; }
+  box.style.display = 'block';
+  box.innerHTML = `<b>選択中の商品：</b>${(p.itemName||'').slice(0, 50).replace(/</g,'&lt;')}...
+    <div class="kv"><b>価格:</b> ¥${(p.itemPrice||0).toLocaleString()} <b>レビュー:</b> ${(p.reviewCount||0)}件 ★${p.reviewAverage||0}</div>`;
+}
+
+// ============ ③ 投稿文生成 ============
+async function callClaude(prompt, model, maxTokens) {
+  const claudeKey = document.getElementById('claudeKey').value.trim();
+  const headers = { 'Content-Type': 'application/json' };
+  if (claudeKey) headers['x-api-key'] = claudeKey;
+  const res = await fetch(workerUrl() + '/claude', {
+    method: 'POST', headers,
+    body: JSON.stringify({
+      model: model || 'claude-opus-4-8',
+      max_tokens: maxTokens || 2500,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  return (data.content || []).map(c => c.text || '').join('');
+}
+
+async function runGenerate() {
+  if (!state.selectedProduct) { setStatus('genStatus', '先に②で商品を選択してください', 'err'); return; }
+  const p = state.selectedProduct;
+  const model = document.getElementById('genModel').value;
+  const promptTpl = document.getElementById('genPrompt').value;
+
+  const productInfo = `商品名: ${p.itemName}\nキャッチコピー: ${p.catchcopy || ''}\n価格: ${p.itemPrice}円\nレビュー: ${p.reviewCount}件（★${p.reviewAverage}）\nショップ: ${p.shopName || ''}`;
+  const prompt = promptTpl.replace('{{PRODUCT}}', productInfo);
+
+  const btn = document.getElementById('genBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>生成中...（20〜40秒）';
+  setStatus('genStatus', 'AIが投稿文を生成中...', 'info');
+
+  try {
+    const raw = await callClaude(prompt, model, 3000);
+    // JSON抽出
+    let json = raw.trim();
+    const m = json.match(/\{[\s\S]*\}/);
+    if (m) json = m[0];
+    let parsed;
+    try { parsed = JSON.parse(json); }
+    catch { throw new Error('生成結果の解析に失敗しました。もう一度お試しください。'); }
+
+    // フラット化
+    const posts = [];
+    const cats = { '通常版': '通常', '超バズ': '超バズ狙い', '第三者目線': '第三者目線', 'ズラし型': 'ズラし型' };
+    for (const key in cats) {
+      (parsed[key] || []).forEach(t => posts.push({ cat: cats[key], text: t }));
+    }
+    state.posts = posts;
+    state.selectedPostIndex = null;
+    renderPosts();
+    clearStatus('genStatus');
+  } catch (e) {
+    setStatus('genStatus', 'エラー: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '✨ 投稿文を生成';
+  }
+}
+
+function renderPosts() {
+  const wrap = document.getElementById('genResults');
+  const list = document.getElementById('postList');
+  wrap.style.display = 'block';
+  if (!state.posts.length) { list.innerHTML = '<div class="empty">結果なし</div>'; return; }
+  list.innerHTML = state.posts.map((p, i) => `
+    <div class="post ${state.selectedPostIndex===i?'selected':''}" onclick="selectPost(${i})">
+      <div class="cat">${p.cat}</div>
+      <div class="len">${[...p.text].length}字</div>
+      <div class="text">${p.text.replace(/</g,'&lt;')}</div>
+    </div>`).join('');
+}
+
+async function selectPost(i) {
+  state.selectedPostIndex = i;
+  renderPosts();
+  // リプ案内文を自動生成
+  setStatus('genStatus', 'リプライ用の案内文を生成中...', 'info');
+  try {
+    const model = document.getElementById('genModel').value;
+    const reply = await callClaude(REPLY_PROMPT.replace('{{POST}}', state.posts[i].text), model, 300);
+    state.replyText = reply.trim().replace(/^["「]|["」]$/g, '');
+    setStatus('genStatus', '✓ 投稿を選択しました。案内リプも生成済みです。画像選定へ進めます。', 'ok');
+  } catch (e) {
+    state.replyText = '商品はこちら👇';
+    setStatus('genStatus', '案内文の自動生成に失敗（デフォルト文を使用）。画像選定へ進めます。', 'info');
+  }
+}
+
+// ============ ④ 画像選定 ============
+function renderImagePicker() {
+  const wrap = document.getElementById('imagePickerWrap');
+  if (!state.selectedProduct || !state.images.length) {
+    wrap.innerHTML = '<div class="empty">先に②で商品を選び、③で投稿文を選択してください。</div>';
+    return;
+  }
+  const selCount = state.images.filter(im => im.selected).length;
+  wrap.innerHTML = `
+    <div class="warn-box" style="background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8">
+      メインポストに使う画像を選択（2〜3枚推奨）。現在 <b>${selCount}枚</b> 選択中。クリックで選択/解除。
+    </div>
+    <div class="imgpick">
+      ${state.images.map((im, i) => `
+        <div class="im ${im.selected?'sel':''}" onclick="toggleImage(${i})">
+          <img src="${im.url}" onerror="this.style.opacity=.3">
+          <div class="check">${im.order||'✓'}</div>
+        </div>`).join('')}
+    </div>
+    <p class="hint" style="margin-top:10px">※ 楽天の商品ページに掲載されている画像です。参考投稿の写真ではなく、この商品画像を使うことで規約・著作権面でも安全です。</p>`;
+}
+
+function toggleImage(i) {
+  const im = state.images[i];
+  const selCount = state.images.filter(x => x.selected).length;
+  if (!im.selected && selCount >= 3) { alert('画像は最大3枚までです'); return; }
+  im.selected = !im.selected;
+  // order振り直し
+  let o = 1;
+  state.images.forEach(x => { if (x.selected) x.order = o++; else x.order = 0; });
+  renderImagePicker();
+}
+
+// ============ ⑤ 予約 ============
+function renderAssemble() {
+  const wrap = document.getElementById('assembleWrap');
+  if (state.selectedPostIndex === null || !state.selectedProduct) {
+    wrap.innerHTML = '<div class="empty">先に③で投稿文を選択してください。</div>';
+    return;
+  }
+  const p = state.selectedProduct;
+  const mainText = state.posts[state.selectedPostIndex].text;
+  const selImgs = state.images.filter(im => im.selected).sort((a,b)=>a.order-b.order);
+  const affiUrl = p.affiliateUrl || p.itemUrl || '';
+  const replyText = (state.replyText || '商品はこちら👇') + '\n' + affiUrl + ' #ad';
+
+  // 日時デフォルト（明日6:00）
+  const tmr = new Date(); tmr.setDate(tmr.getDate()+1);
+  const dateStr = tmr.toISOString().slice(0,10);
+
+  wrap.innerHTML = `
+    <div class="tw-preview">
+      <div class="head"><div class="avatar"></div><div class="handle"><b>あなたのアカウント</b><br><span>@you</span></div></div>
+      <div class="tw-text">${mainText.replace(/</g,'&lt;')}</div>
+      ${selImgs.length ? `<div class="tw-imgs n${selImgs.length}">${selImgs.map(im=>`<img src="${im.url}">`).join('')}</div>` : '<div class="hint">画像未選択（④で選択できます）</div>'}
+      <div class="reply-connect">
+        <div style="font-size:11px;color:var(--sub);font-weight:700;margin-bottom:4px">↳ リプライ（案内＋アフィリンク＋#ad）</div>
+        <div class="tw-text" style="margin:0">${replyText.replace(/</g,'&lt;')}</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;box-shadow:none;border:1px solid var(--line)">
+      <label class="field">
+        <span>リプライ案内文（編集可）</span>
+        <textarea id="replyEdit" style="min-height:60px">${(state.replyText||'商品はこちら👇')}</textarea>
+        <div class="hint">この下にアフィリンクと <code class="inline">#ad</code> が自動で付きます。</div>
+      </label>
+
+      <div class="warn-box">
+        <b>アフィリンク：</b><br>
+        <span style="word-break:break-all;font-size:11px">${affiUrl}</span>
+        <div style="margin-top:8px">
+          <button class="btn btn-ghost btn-sm" onclick="copyText('${affiUrl.replace(/'/g,"\\'")}')">📋 リンクをコピー</button>
+          <a href="https://affiliate.rakuten.co.jp/" target="_blank" class="btn btn-ghost btn-sm" style="text-decoration:none">🔗 楽天で短縮URL作成</a>
+        </div>
+        <div class="hint">※ 短縮URL(a.r10.to)にしたい場合は、上のリンクをコピーして楽天アフィリエイトで短縮版を作成し、下の欄に貼り替えてください。</div>
+      </div>
+
+      <label class="field">
+        <span>使用するアフィリンク（短縮版に貼り替え可）</span>
+        <input type="text" id="affiEdit" value="${affiUrl}">
+      </label>
+
+      <div class="row">
+        <label class="field">
+          <span>投稿日</span>
+          <input type="date" id="postDate" value="${dateStr}">
+        </label>
+        <label class="field">
+          <span>投稿時刻（分単位）</span>
+          <input type="time" id="postTime" value="06:00">
+        </label>
+      </div>
+
+      <div class="toolbar" style="margin-top:8px">
+        <button class="btn btn-line" id="scheduleBtn" onclick="scheduleToTypefully()">📅 Typefullyで予約</button>
+        <button class="btn btn-ghost" onclick="copyAll()">📋 全文コピー（手動投稿用）</button>
+      </div>
+      <div class="status" id="scheduleStatus" style="margin-top:12px"></div>
+    </div>`;
+}
+
+function copyText(t) { navigator.clipboard.writeText(t); alert('コピーしました'); }
+function copyAll() {
+  const mainText = state.posts[state.selectedPostIndex].text;
+  const affi = document.getElementById('affiEdit').value;
+  const reply = document.getElementById('replyEdit').value + '\n' + affi + ' #ad';
+  navigator.clipboard.writeText(`【メイン】\n${mainText}\n\n【リプ】\n${reply}`);
+  alert('メイン＋リプをコピーしました');
+}
+
+async function scheduleToTypefully() {
+  const tkey = document.getElementById('typefullyKey').value.trim();
+  if (!tkey) { setStatus('scheduleStatus', 'Typefully APIキーを設定してください（⚙️設定）', 'err'); return; }
+
+  const mainText = state.posts[state.selectedPostIndex].text;
+  const affi = document.getElementById('affiEdit').value.trim();
+  const replyText = document.getElementById('replyEdit').value.trim() + '\n' + affi + ' #ad';
+  const date = document.getElementById('postDate').value;
+  const time = document.getElementById('postTime').value;
+  const schedule = new Date(`${date}T${time}:00`).toISOString();
+
+  // メイン \n\n\n\n でスレッド区切り（Typefully仕様）
+  const content = mainText + '\n\n\n\n' + replyText;
+
+  const btn = document.getElementById('scheduleBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>予約中...';
+  setStatus('scheduleStatus', 'Typefullyに送信中...', 'info');
+
+  try {
+    const res = await fetch(workerUrl() + '/typefully-draft', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: tkey, content, 'schedule-date': schedule, threadify: false })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    // 投稿済み記録
+    if (state.selectedProduct && !state.postedItems.includes(state.selectedProduct.itemCode)) {
+      state.postedItems.push(state.selectedProduct.itemCode);
+      localStorage.setItem('rk_posted', JSON.stringify(state.postedItems));
+    }
+    setStatus('scheduleStatus', `✓ 予約完了！ ${date} ${time} に投稿されます。Typefullyの下書きに追加されました。`, 'ok');
+  } catch (e) {
+    setStatus('scheduleStatus', 'エラー: ' + e.message + '（Worker側に /typefully-draft の追加が必要な場合があります）', 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '📅 Typefullyで予約';
+  }
+}
+
+init();
+</script>
+</body>
+</html>
