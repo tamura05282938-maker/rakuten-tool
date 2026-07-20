@@ -226,6 +226,11 @@
         <input type="password" id="typefullyKey" placeholder="Typefullyの設定→APIから取得">
         <div class="hint">⑤の自動予約に使用します。</div>
       </label>
+      <label class="field">
+        <span>SocialData API キー</span>
+        <input type="password" id="socialdataKey" placeholder="SocialDataのAPIキー">
+        <div class="hint">①リサーチに使用します。</div>
+      </label>
       <div class="toolbar">
         <button class="btn btn-ghost btn-sm" onclick="saveSettings()">💾 設定を保存</button>
         <span id="settingsStatus" style="font-size:12px;color:var(--ok)"></span>
@@ -466,6 +471,7 @@ function init() {
   const ws = localStorage.getItem('rk_worker'); if (ws) document.getElementById('workerUrl').value = ws;
   const ck = localStorage.getItem('rk_claude'); if (ck) document.getElementById('claudeKey').value = ck;
   const tk = localStorage.getItem('rk_typefully'); if (tk) document.getElementById('typefullyKey').value = tk;
+  const sk = localStorage.getItem('rk_socialdata'); if (sk) document.getElementById('socialdataKey').value = sk;
   // プロンプト復元
   const p = localStorage.getItem('rk_prompt');
   document.getElementById('genPrompt').value = p || DEFAULT_PROMPT;
@@ -495,6 +501,7 @@ function saveSettings() {
   localStorage.setItem('rk_worker', document.getElementById('workerUrl').value.trim());
   localStorage.setItem('rk_claude', document.getElementById('claudeKey').value.trim());
   localStorage.setItem('rk_typefully', document.getElementById('typefullyKey').value.trim());
+  localStorage.setItem('rk_socialdata', document.getElementById('socialdataKey').value.trim());
   const s = document.getElementById('settingsStatus'); s.textContent = '✓ 保存しました';
   setTimeout(() => s.textContent = '', 2000);
 }
@@ -538,9 +545,10 @@ async function runResearch() {
   const query = `${kw} ${domFilter} min_faves:${minLikes} -filter:replies`;
 
   try {
+    const socialdataKey = document.getElementById('socialdataKey').value.trim();
     const res = await fetch(workerUrl() + '/search-tweets', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, count: 40 })
+      body: JSON.stringify({ query, count: 40, apiKey: socialdataKey || undefined })
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
