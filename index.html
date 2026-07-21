@@ -255,6 +255,34 @@
         </label>
       </div>
 
+      <div class="row">
+        <label class="field" style="flex:2">
+          <span>除外キーワード（スペース区切り）</span>
+          <input type="text" id="excludeKeywords" placeholder="例：フィギュア 予約 グッズ">
+        </label>
+        <label class="field">
+          <span>投稿期間</span>
+          <select id="periodFilter">
+            <option value="all">すべて</option>
+            <option value="7">直近1週間</option>
+            <option value="30">直近1ヶ月</option>
+            <option value="90" selected>直近3ヶ月</option>
+            <option value="180">直近6ヶ月</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="field">
+        <span>ジャンル</span>
+        <div class="chips" id="genreChips">
+          <div class="chip on" data-genre="none">指定なし</div>
+          <div class="chip" data-genre="fashion">ファッション</div>
+          <div class="chip" data-genre="goods">便利グッズ</div>
+          <div class="chip" data-genre="cosme">コスメ・美容</div>
+          <div class="chip" data-genre="kitchen">キッチン・日用品</div>
+        </div>
+      </label>
+
       <label class="field">
         <span>対象プラットフォーム</span>
         <div class="chips" id="platformChips">
@@ -466,6 +494,15 @@ const REPLY_PROMPT = `以下の投稿に続く、リプライ用の「商品は�
 {{POST}}`;
 
 // ============ 初期化 ============
+// ジャンルプリセット: 選択すると除外キーワード欄に自動セットされる語
+const GENRE_PRESETS = {
+  none: [],
+  fashion: ['フィギュア', '予約', 'グッズ', 'ガチャ', 'カプセル'],
+  goods: ['フィギュア', '予約', 'コスプレ', 'ガチャ'],
+  cosme: ['フィギュア', '予約', 'グッズ'],
+  kitchen: ['フィギュア', '予約', 'グッズ', 'ガチャ'],
+};
+
 function init() {
   // 設定復元
   const ws = localStorage.getItem('rk_worker'); if (ws) document.getElementById('workerUrl').value = ws;
@@ -476,6 +513,13 @@ function init() {
   const p = localStorage.getItem('rk_prompt');
   document.getElementById('genPrompt').value = p || DEFAULT_PROMPT;
 
+  // 除外キーワード復元・自動保存
+  const ex = localStorage.getItem('rk_exclude');
+  if (ex) document.getElementById('excludeKeywords').value = ex;
+  document.getElementById('excludeKeywords').addEventListener('input', (e) => {
+    localStorage.setItem('rk_exclude', e.target.value);
+  });
+
   // stepper
   document.querySelectorAll('.step-btn').forEach(b => {
     b.addEventListener('click', () => goStep(parseInt(b.dataset.step)));
@@ -485,6 +529,19 @@ function init() {
     c.addEventListener('click', () => {
       document.querySelectorAll('#platformChips .chip').forEach(x => x.classList.remove('on'));
       c.classList.add('on');
+    });
+  });
+  // genre chips
+  document.querySelectorAll('#genreChips .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('#genreChips .chip').forEach(x => x.classList.remove('on'));
+      c.classList.add('on');
+      const words = GENRE_PRESETS[c.dataset.genre] || [];
+      if (words.length) {
+        const excludeInput = document.getElementById('excludeKeywords');
+        excludeInput.value = words.join(' ');
+        localStorage.setItem('rk_exclude', excludeInput.value);
+      }
     });
   });
 }
@@ -542,7 +599,26 @@ async function runResearch() {
   else if (platform === 'amazon') domFilter = amazonDom;
   else domFilter = '(' + rakutenDom + ' OR ' + amazonDom + ')';
 
-  const query = `${kw} ${domFilter} min_faves:${minLikes} -filter:replies`;
+  // 除外キーワード
+  const excludeRaw = document.getElementById('excludeKeywords').value.trim();
+  const excludeWords = excludeRaw ? excludeRaw.split(/\s+/) : [];
+  const excludeClause = excludeWords.map(w => `-${w}`).join(' ');
+
+  // 投稿期間フィルタ
+  const periodDays = document.getElementById('periodFilter').value;
+  let sinceClause = '';
+  if (periodDays !== 'all') {
+    const since = new Date();
+    since.setDate(since.getDate() - parseInt(periodDays));
+    const y = since.getFullYear();
+    const m = String(since.getMonth() + 1).padStart(2, '0');
+    const d = String(since.getDate()).padStart(2, '0');
+    sinceClause = `since:${y}-${m}-${d}`;
+  }
+
+  const query = [kw, domFilter, `min_faves:${minLikes}`, '-filter:replies', excludeClause, sinceClause]
+    .filter(Boolean).join(' ');
+  console.log('[research query]', query);
 
   try {
     const socialdataKey = document.getElementById('socialdataKey').value.trim();
