@@ -286,6 +286,27 @@ var worker_default = {
         return err("/search-tweets error: " + e.message, 500);
       }
     }
+    if (method === "POST" && path === "/tweet-comments") {
+      try {
+        const { id, apiKey, cursor } = await request.json();
+        if (!id) return err("id is required");
+        const key = apiKey || env.SOCIAL_DATA_API_KEY;
+        if (!key) return err("SocialData API Key is not configured", 401);
+        let commentsUrl = `https://api.socialdata.tools/twitter/tweets/${encodeURIComponent(id)}/comments`;
+        if (cursor) commentsUrl += `?cursor=${encodeURIComponent(cursor)}`;
+        const sdRes = await fetch(commentsUrl, {
+          headers: {
+            Authorization: `Bearer ${key}`,
+            Accept: "application/json"
+          }
+        });
+        const data = await sdRes.json();
+        if (!sdRes.ok) return err(`SocialData error: ${data.message || sdRes.status}`, sdRes.status);
+        return ok(data);
+      } catch (e) {
+        return err("/tweet-comments error: " + e.message, 500);
+      }
+    }
     if (method === "POST" && path === "/gemini-image") {
       try {
         const { prompt, model: reqModel, resolution, characterImageBase64, characterMimeType, geminiApiKey } = await request.json();

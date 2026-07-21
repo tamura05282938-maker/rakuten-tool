@@ -311,6 +311,13 @@
         <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px;margin-top:10px">
           <input type="checkbox" id="onlyAffiliateLinks"> 「両方」選択時、アフィリンク付きの投稿のみに絞る
         </label>
+        <div class="row" style="margin-top:8px;align-items:flex-end">
+          <label class="field" style="max-width:200px">
+            <span>リプ確認の上限件数</span>
+            <input type="number" id="replyCheckLimit" value="20" min="0" step="5">
+          </label>
+          <small style="color:var(--sub);font-size:11px;flex:1;padding-bottom:10px">「楽天のみ」「Amazonのみ」選択時、本文だけでは判定できなかった投稿について、いいね数が多い順にこの件数までリプ欄を確認します（0で無効・軽量）</small>
+        </div>
       </div>
 
       <label class="field">
@@ -320,7 +327,7 @@
           <div class="chip" data-platform="amazon">Amazonのみ</div>
           <div class="chip on" data-platform="both">両方</div>
         </div>
-        <small style="color:var(--sub);font-size:11px;display:block;margin-top:6px">※アカウント指定モードでは、取得後に投稿本文・添付リンクからドメイン判定して絞り込みます。アフィリンクがリプ欄の別ツイートに貼られている場合はメイン投稿からは判定できず、絞り込みで漏れることがあります（その場合は「両方」でご確認ください）</small>
+        <small style="color:var(--sub);font-size:11px;display:block;margin-top:6px">※「楽天のみ」「Amazonのみ」は、まず投稿本文・添付リンクで判定し、判定できなかった投稿はリプ欄も確認します（上のリプ確認上限まで）。上限を超えた分や、リプでも判定できなかった投稿は表示されません。すべて見たい場合は「両方」を選んでください</small>
       </label>
 
       <div class="toolbar">
@@ -485,7 +492,47 @@ const state = {
   postedItems: JSON.parse(localStorage.getItem('rk_posted') || '[]'),
   accountList: [],       // 競合アカウントリスト（rk_account_list）
   accountSelected: new Set(), // 検索対象として選択中のアカウント名
+  replyCache: JSON.parse(localStorage.getItem('rk_reply_cache') || '{}'), // 投稿ID→'rakuten'|'amazon'|'none'|'error'
 };
+
+function saveReplyCache() {
+  const keys = Object.keys(state.replyCache);
+  if (keys.length > 2000) delete state.replyCache[keys[0]]; // キャッシュの肥大化を防ぐ
+  localStorage.setItem('rk_reply_cache', JSON.stringify(state.replyCache));
+}
+
+// リプ欄（コメント）を確認して楽天/Amazonドメインの有無を判定する。結果はキャッシュして再リクエストを避ける
+async function checkPlatformInReplies(tweetId, apiKey) {
+  if (state.replyCache[tweetId]) {
+    console.log('[reply-check] tweet=' + tweetId + ' (キャッシュ) result=' + state.replyCache[tweetId]);
+    return state.replyCache[tweetId];
+  }
+  try {
+    const res = await fetch(workerUrl() + '/tweet-comments', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: tweetId, apiKey: apiKey || undefined })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const comments = data.tweets || [];
+    const haystack = comments.map(c => {
+      const urlText = ((c.entities && c.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
+      return urlText + ' ' + (c.full_text || c.text || '');
+    }).join(' ');
+    let result = 'none';
+    if (RAKUTEN_LINK_DOMAINS_CHECK.some(d => haystack.includes(d))) result = 'rakuten';
+    else if (AMAZON_LINK_DOMAINS.some(d => haystack.includes(d))) result = 'amazon';
+    console.log('[reply-check] tweet=' + tweetId + ' comments=' + comments.length + ' result=' + result);
+    state.replyCache[tweetId] = result;
+    saveReplyCache();
+    return result;
+  } catch (e) {
+    console.warn('[reply-check] tweet=' + tweetId + ' failed:', e.message);
+    state.replyCache[tweetId] = 'error';
+    saveReplyCache();
+    return 'error';
+  }
+}
 
 const DEFAULT_PROMPT = `あなたはX（旧Twitter）で楽天アフィリエイト商品を紹介する「共感型・女性アカウント風」の投稿を作成する専門ライターです。
 
@@ -796,7 +843,8 @@ async function runResearch() {
       tweets = await fetchByQuery(q, displayTarget);
     }
 
-    // 同一ツイートIDで重複除去 → いいね数で再フィルタ
+    // 同一ツイートIDで重複除去 → いいね数で再フィルタ → いいね数順ソート
+    // （リプ確認の「上位N件」判定に使うため、プラットフォーム絞り込みより先にソートしておく）
     const seenIds = new Set();
     tweets = tweets
       .filter(t => {
@@ -805,27 +853,45 @@ async function runResearch() {
         return true;
       })
       .filter(t => (t.favorite_count || 0) >= minLikes);
+    tweets.sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
 
     // アカウント指定モード: プラットフォーム選択を取得後にクライアント側で反映する。
     // from:検索はリンク種別を絞れないため、投稿本文＋entities.urlsのドメインで判定する。
-    // 「両方」は原則フィルタなし（「アフィリンク付きのみ」がONの時だけ楽天/Amazon両ドメインで絞る）。
-    // 注意: アフィリンクがリプ欄の別ツイートに貼られている場合、メイン投稿単体では判定できず漏れうる。
-    if (mode === 'account') {
-      let linkDomains = null;
-      if (platform === 'rakuten') linkDomains = RAKUTEN_LINK_DOMAINS_CHECK;
-      else if (platform === 'amazon') linkDomains = AMAZON_LINK_DOMAINS;
-      else if (document.getElementById('onlyAffiliateLinks').checked) linkDomains = RAKUTEN_LINK_DOMAINS_CHECK.concat(AMAZON_LINK_DOMAINS);
+    if (mode === 'account' && (platform === 'rakuten' || platform === 'amazon')) {
+      // ①本文（entities.urls＋テキスト）でまず判定
+      const targetDomains = platform === 'rakuten' ? RAKUTEN_LINK_DOMAINS_CHECK : AMAZON_LINK_DOMAINS;
+      const otherDomains = platform === 'rakuten' ? AMAZON_LINK_DOMAINS : RAKUTEN_LINK_DOMAINS_CHECK;
+      tweets.forEach(t => {
+        const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
+        const haystack = urlText + ' ' + (t.full_text || t.text || '');
+        if (targetDomains.some(d => haystack.includes(d))) { t._platformResult = platform; t._platformSource = 'body'; }
+        else if (otherDomains.some(d => haystack.includes(d))) { t._platformResult = platform === 'rakuten' ? 'amazon' : 'rakuten'; t._platformSource = 'body'; }
+        else { t._platformResult = 'unknown'; t._platformSource = null; }
+      });
 
-      if (linkDomains) {
-        tweets = tweets.filter(t => {
-          const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
-          const haystack = urlText + ' ' + (t.full_text || t.text || '');
-          return linkDomains.some(d => haystack.includes(d));
-        });
+      // ②本文で判定できなかった投稿は、いいね数上位から上限件数までリプ欄を確認
+      const replyCheckLimit = Math.max(parseInt(document.getElementById('replyCheckLimit').value) || 0, 0);
+      const candidates = tweets.filter(t => t._platformResult === 'unknown').slice(0, replyCheckLimit);
+      console.log(`[reply-check] 本文で未判定=${tweets.filter(t => t._platformResult === 'unknown').length}件中、上限${replyCheckLimit}件をリプ確認します`);
+      for (let i = 0; i < candidates.length; i++) {
+        const t = candidates[i];
+        setStatus('researchStatus', `リプ確認中... ${i + 1}/${candidates.length}件`, 'info');
+        const result = await checkPlatformInReplies(t.id_str, socialdataKey);
+        if (result === 'rakuten' || result === 'amazon') { t._platformResult = result; t._platformSource = 'reply'; }
       }
-    }
+      console.log(`[reply-check] 完了。リプ確認対象=${candidates.length}件`);
 
-    tweets.sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
+      // ③選択したプラットフォームと確定した投稿だけ表示（上限を超えて未判定のものは除外）
+      tweets = tweets.filter(t => t._platformResult === platform);
+    } else if (mode === 'account' && platform === 'both' && document.getElementById('onlyAffiliateLinks').checked) {
+      // 「両方」はリプ確認を行わない軽量ルート。本文のみで楽天/Amazonいずれかのリンクがあるものに絞る
+      const linkDomains = RAKUTEN_LINK_DOMAINS_CHECK.concat(AMAZON_LINK_DOMAINS);
+      tweets = tweets.filter(t => {
+        const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
+        const haystack = urlText + ' ' + (t.full_text || t.text || '');
+        return linkDomains.some(d => haystack.includes(d));
+      });
+    }
 
     state.research = tweets;
     renderResearch(kw);
@@ -867,9 +933,16 @@ function renderResearch(kw) {
     // 元ポストURL（id_strを使用。数値idは桁溢れするため不可）
     const postUrl = `https://x.com/${encodeURIComponent(user.screen_name||'')}/status/${t.id_str}`;
 
+    // プラットフォーム判定バッジ（アカウント指定モードで楽天/Amazon単体選択時のみ付与される）
+    const sourceBadge = t._platformSource === 'reply'
+      ? '<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px">🔁リプで確認</span>'
+      : t._platformSource === 'body'
+      ? '<span style="font-size:10px;background:#e0f2e9;color:#166534;padding:2px 6px;border-radius:4px">📝本文で確認</span>'
+      : '';
+
     return `<div class="post" style="cursor:default">
       <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
-        <b style="font-size:13px">@${(user.screen_name||'').replace(/</g,'')}</b>
+        <b style="font-size:13px">@${(user.screen_name||'').replace(/</g,'')} ${sourceBadge}</b>
         <span style="font-size:12px;color:var(--sub)">❤️ ${likes.toLocaleString()} / 🔁 ${rt.toLocaleString()}</span>
       </div>
       <div class="text" style="font-size:13px">${text}</div>
