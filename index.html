@@ -581,14 +581,34 @@ function renderResearch(kw) {
     const text = (t.full_text || t.text || '').replace(/</g, '&lt;');
     const likes = t.favorite_count || 0;
     const rt = t.retweet_count || 0;
+
+    // 投稿画像（重複除去、photoのみ）
+    const media = t.entities && t.entities.media || [];
+    const seen = new Set();
+    const photos = media.filter(m => {
+      if (m.type !== 'photo') return false;
+      const key = m.media_key || m.id_str;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const mediaHtml = photos.length ? `<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+      ${photos.map(m => `<img src="${m.media_url_https}?name=small" onclick="window.open('${m.media_url_https}?name=large','_blank')" style="height:140px;border-radius:6px;cursor:pointer;object-fit:cover">`).join('')}
+    </div>` : '';
+
+    // 元ポストURL（id_strを使用。数値idは桁溢れするため不可）
+    const postUrl = `https://x.com/${encodeURIComponent(user.screen_name||'')}/status/${t.id_str}`;
+
     return `<div class="post" style="cursor:default">
       <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
         <b style="font-size:13px">@${(user.screen_name||'').replace(/</g,'')}</b>
         <span style="font-size:12px;color:var(--sub)">❤️ ${likes.toLocaleString()} / 🔁 ${rt.toLocaleString()}</span>
       </div>
       <div class="text" style="font-size:13px">${text}</div>
-      <div style="margin-top:10px;display:flex;gap:6px">
+      ${mediaHtml}
+      <div style="margin-top:10px;display:flex;gap:6px;align-items:center">
         <button class="btn btn-primary btn-sm" onclick="useForProduct('${kw.replace(/'/g,"")}')">この系統で商品を判定 →</button>
+        <a href="${postUrl}" target="_blank" rel="noopener" style="font-size:12px">元ポストを見る↗</a>
       </div>
     </div>`;
   }).join('');
