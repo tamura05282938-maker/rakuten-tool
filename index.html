@@ -658,15 +658,11 @@ async function runResearch() {
   else if (platform === 'amazon') domFilter = amazonDom;
   else domFilter = '(' + rakutenDom + ' OR ' + amazonDom + ')';
 
-  // 除外キーワード
+  // 除外キーワード・除外アカウントはサーバークエリに含めず、取得後のクライアント側フィルタで適用する
   const excludeRaw = document.getElementById('excludeKeywords').value.trim();
   const excludeWords = excludeRaw ? excludeRaw.split(/\s+/) : [];
-  const excludeClause = excludeWords.map(w => `-${w}`).join(' ');
-
-  // 除外アカウント
   const excludeAccountsRaw = document.getElementById('excludeAccounts').value.trim();
   const excludeAccounts = excludeAccountsRaw ? excludeAccountsRaw.split(/\s+/) : [];
-  const excludeAccountsClause = excludeAccounts.map(a => `-from:${a.replace(/^@/, '')}`).join(' ');
 
   // 投稿期間フィルタ
   const periodDays = document.getElementById('periodFilter').value;
@@ -683,23 +679,42 @@ async function runResearch() {
   // アフィリンク検知モードではリプ欄のアフィリンクも拾うため replies を除外しない
   const repliesClause = mode === 'affiliate' ? '' : '-filter:replies';
 
-  const query = [kw, domFilter, `min_faves:${minLikes}`, repliesClause, excludeClause, excludeAccountsClause, sinceClause]
+  // サーバークエリ（SocialDataのquery）は必要最小限にする。
+  // 除外キーワード・除外アカウントはここに含めず、取得後のクライアント側フィルタ（下部）に寄せる。
+  // 理由: 除外条件が増えるとSocialDataのquery上限（512文字）を超えてエラーになるため。
+  const MAX_QUERY_LEN = 512;
+  let query = [kw, domFilter, `min_faves:${minLikes}`, repliesClause, sinceClause]
     .filter(Boolean).join(' ');
-  console.log('[research query]', query, '(mode=' + mode + ')');
+  if (query.length > MAX_QUERY_LEN) {
+    // 念のためのガード。ドメインフィルタ（アフィリンク判定の要）は必ず残し、
+    // それ以外は優先度順（キーワード→いいね数→replies→期間）に収まる分だけ足す。
+    query = domFilter;
+    for (const part of [kw, `min_faves:${minLikes}`, repliesClause, sinceClause].filter(Boolean)) {
+      const candidate = `${query} ${part}`;
+      if (candidate.length <= MAX_QUERY_LEN) query = candidate;
+    }
+    console.warn('[research query] 512文字上限のため一部条件を省略しました');
+  }
+  console.log('[research query]', query, `(${query.length}文字 / mode=${mode})`);
 
   const socialdataKey = document.getElementById('socialdataKey').value.trim();
+
+  // 除外はクライアント側フィルタが主軸になったため、フィルタで減る分を見込んで
+  // 表示目標より多めに（2〜3倍）生で取得しておく。課金に配慮しMAX_PAGESで上限を設ける。
+  const OVERFETCH_MULTIPLIER = 3;
 
   try {
     let tweets = [];
     if (mode === 'affiliate') {
-      const fetchCount = Math.max(parseInt(document.getElementById('fetchCount').value) || 50, 10);
+      const displayTarget = Math.max(parseInt(document.getElementById('fetchCount').value) || 50, 10);
+      const rawTarget = displayTarget * OVERFETCH_MULTIPLIER;
       const deepFetch = document.getElementById('deepFetch').checked;
       const MAX_PAGES = 10; // 安全のため最大10ページ（約1000件）でストップ
       let cursor;
       let page = 0;
       do {
         page++;
-        const pageSize = Math.min(100, fetchCount - tweets.length);
+        const pageSize = Math.min(100, rawTarget - tweets.length);
         const res = await fetch(workerUrl() + '/search-tweets', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ query, count: pageSize, apiKey: socialdataKey || undefined, cursor })
@@ -709,14 +724,15 @@ async function runResearch() {
         const pageTweets = data.tweets || [];
         tweets = tweets.concat(pageTweets);
         cursor = data.next_cursor;
-        console.log('[research paging] page=' + page + ' got=' + pageTweets.length + ' total=' + tweets.length + ' next_cursor=' + cursor);
+        console.log('[research paging] page=' + page + ' got=' + pageTweets.length + ' total=' + tweets.length + '/' + rawTarget + '(生取得目標) next_cursor=' + cursor);
         setStatus('researchStatus', `取得中... ${tweets.length}件`, 'info');
         if (!deepFetch || !cursor || pageTweets.length === 0) break;
-      } while (tweets.length < fetchCount && page < MAX_PAGES);
+      } while (tweets.length < rawTarget && page < MAX_PAGES);
     } else {
+      // キーワードモードは単発リクエストのまま、除外フィルタで減る分を見込んで多めに取得
       const res = await fetch(workerUrl() + '/search-tweets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, count: 40, apiKey: socialdataKey || undefined })
+        body: JSON.stringify({ query, count: Math.min(100, 40 * OVERFETCH_MULTIPLIER), apiKey: socialdataKey || undefined })
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
@@ -733,10 +749,8 @@ async function runResearch() {
       })
       .filter(t => (t.favorite_count || 0) >= minLikes);
 
-    // クライアント側の再フィルタ（保険）
-    // SocialData/Xの -word は「ガチャ」のような部分一致ではなく単語単位のマッチのため、
-    // -ガチャ を指定しても「ガチャガチャ」等の複合語が除外しきれないことがある。
-    // 取得後にも本文へ部分一致で除外語チェックをかけて確実に弾く。
+    // 除外キーワード・除外アカウントはサーバークエリに含めていないため、
+    // ここが除外処理の本体。本文への部分一致（-wordの単語単位マッチと違い「ガチャガチャ」も確実に弾ける）で判定する。
     if (excludeWords.length) {
       tweets = tweets.filter(t => {
         const text = t.full_text || t.text || '';
