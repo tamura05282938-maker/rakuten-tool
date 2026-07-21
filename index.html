@@ -309,17 +309,18 @@
           </div>
         </div>
         <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px;margin-top:10px">
-          <input type="checkbox" id="onlyAffiliateLinks"> アフィリンク付きの投稿のみに絞る
+          <input type="checkbox" id="onlyAffiliateLinks"> 「両方」選択時、アフィリンク付きの投稿のみに絞る
         </label>
       </div>
 
       <label class="field">
         <span>対象プラットフォーム</span>
         <div class="chips" id="platformChips">
-          <div class="chip on" data-platform="rakuten">楽天のみ</div>
+          <div class="chip" data-platform="rakuten">楽天のみ</div>
           <div class="chip" data-platform="amazon">Amazonのみ</div>
-          <div class="chip" data-platform="both">両方</div>
+          <div class="chip on" data-platform="both">両方</div>
         </div>
+        <small style="color:var(--sub);font-size:11px;display:block;margin-top:6px">※アカウント指定モードでは、取得後に投稿本文・添付リンクからドメイン判定して絞り込みます。アフィリンクがリプ欄の別ツイートに貼られている場合はメイン投稿からは判定できず、絞り込みで漏れることがあります（その場合は「両方」でご確認ください）</small>
       </label>
 
       <div class="toolbar">
@@ -687,6 +688,8 @@ function clearStatus(id) { document.getElementById(id).className = 'status'; }
 
 const RAKUTEN_LINK_DOMAINS = ['a.r10.to', 'hb.afl.rakuten.co.jp', 'room.rakuten.co.jp'];
 const AMAZON_LINK_DOMAINS = ['amzn.to', 'amzn.asia', 'amazon.co.jp'];
+// アカウント指定モードのプラットフォーム絞り込み判定用（rakuten.co.jp単体のリンクも拾う）
+const RAKUTEN_LINK_DOMAINS_CHECK = RAKUTEN_LINK_DOMAINS.concat(['rakuten.co.jp']);
 
 // ============ ① リサーチ ============
 async function runResearch() {
@@ -803,16 +806,23 @@ async function runResearch() {
       })
       .filter(t => (t.favorite_count || 0) >= minLikes);
 
-    // アカウント指定モードの「アフィリンク付きのみ」: 取得後に本文/entities.urlsを見て絞り込む
-    if (mode === 'account' && document.getElementById('onlyAffiliateLinks').checked) {
-      const linkDomains = platform === 'rakuten' ? RAKUTEN_LINK_DOMAINS
-        : platform === 'amazon' ? AMAZON_LINK_DOMAINS
-        : RAKUTEN_LINK_DOMAINS.concat(AMAZON_LINK_DOMAINS);
-      tweets = tweets.filter(t => {
-        const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
-        const haystack = urlText + ' ' + (t.full_text || t.text || '');
-        return linkDomains.some(d => haystack.includes(d));
-      });
+    // アカウント指定モード: プラットフォーム選択を取得後にクライアント側で反映する。
+    // from:検索はリンク種別を絞れないため、投稿本文＋entities.urlsのドメインで判定する。
+    // 「両方」は原則フィルタなし（「アフィリンク付きのみ」がONの時だけ楽天/Amazon両ドメインで絞る）。
+    // 注意: アフィリンクがリプ欄の別ツイートに貼られている場合、メイン投稿単体では判定できず漏れうる。
+    if (mode === 'account') {
+      let linkDomains = null;
+      if (platform === 'rakuten') linkDomains = RAKUTEN_LINK_DOMAINS_CHECK;
+      else if (platform === 'amazon') linkDomains = AMAZON_LINK_DOMAINS;
+      else if (document.getElementById('onlyAffiliateLinks').checked) linkDomains = RAKUTEN_LINK_DOMAINS_CHECK.concat(AMAZON_LINK_DOMAINS);
+
+      if (linkDomains) {
+        tweets = tweets.filter(t => {
+          const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
+          const haystack = urlText + ' ' + (t.full_text || t.text || '');
+          return linkDomains.some(d => haystack.includes(d));
+        });
+      }
     }
 
     tweets.sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
