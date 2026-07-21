@@ -249,10 +249,11 @@
         <div class="chips" id="searchModeChips">
           <div class="chip on" data-mode="keyword">キーワード検索</div>
           <div class="chip" data-mode="affiliate">アフィリンク検知</div>
+          <div class="chip" data-mode="account">アカウント指定</div>
         </div>
       </label>
 
-      <div class="row">
+      <div class="row" id="keywordFieldRow">
         <label class="field" style="flex:2">
           <span id="researchKeywordLabel">検索キーワード</span>
           <input type="text" id="researchKeyword" placeholder="例：マグカップ / 便利グッズ / 収納">
@@ -260,6 +261,19 @@
         <label class="field">
           <span>いいね数の下限</span>
           <input type="number" id="minLikes" value="300" min="0" step="50">
+        </label>
+      </div>
+
+      <div class="row" id="accountFields" style="display:none">
+        <label class="field" style="flex:2">
+          <span>アカウント（@なし、スペース区切りで複数可）</span>
+          <input type="text" id="targetAccounts" placeholder="例：yunnchan_926">
+        </label>
+        <label class="field">
+          <span>&nbsp;</span>
+          <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px">
+            <input type="checkbox" id="onlyAffiliateLinks"> アフィリンク付きの投稿のみに絞る
+          </label>
         </label>
       </div>
 
@@ -535,6 +549,9 @@ const GENRE_PRESETS = {
 // ノイズ源になりやすいグッズ・ガチャ・グラビア系アカウントの初期除外リスト
 const DEFAULT_EXCLUDE_ACCOUNTS = ['japancapsuletoy', 'sanrio_oshikatu', 'toman_goods', 'heisei_goods', 'clipnotebook', 'GravureNews2', 'Jewelpet_goods'];
 
+// アカウント指定モードでお手本として観察する初期アカウント
+const DEFAULT_TARGET_ACCOUNTS = ['yunnchan_926'];
+
 function init() {
   // 設定復元
   const ws = localStorage.getItem('rk_worker'); if (ws) document.getElementById('workerUrl').value = ws;
@@ -565,6 +582,19 @@ function init() {
     localStorage.setItem('rk_exclude_accounts', e.target.value);
   });
 
+  // 観察対象アカウント復元（未設定時は初期リストを自動セット）・自動保存
+  const tgtAcc = localStorage.getItem('rk_target_accounts');
+  const tgtAccInput = document.getElementById('targetAccounts');
+  if (tgtAcc !== null) {
+    tgtAccInput.value = tgtAcc;
+  } else {
+    tgtAccInput.value = DEFAULT_TARGET_ACCOUNTS.join(' ');
+    localStorage.setItem('rk_target_accounts', tgtAccInput.value);
+  }
+  tgtAccInput.addEventListener('input', (e) => {
+    localStorage.setItem('rk_target_accounts', e.target.value);
+  });
+
   // stepper
   document.querySelectorAll('.step-btn').forEach(b => {
     b.addEventListener('click', () => goStep(parseInt(b.dataset.step)));
@@ -581,12 +611,20 @@ function init() {
     c.addEventListener('click', () => {
       document.querySelectorAll('#searchModeChips .chip').forEach(x => x.classList.remove('on'));
       c.classList.add('on');
-      const isAffiliate = c.dataset.mode === 'affiliate';
-      document.getElementById('affiliateFields').style.display = isAffiliate ? 'flex' : 'none';
+      const newMode = c.dataset.mode;
+      const isAffiliate = newMode === 'affiliate';
+      const isAccount = newMode === 'account';
+      // 取得件数・大量取得トグルはアフィリンク検知/アカウント指定の両モードで使う
+      document.getElementById('affiliateFields').style.display = (isAffiliate || isAccount) ? 'flex' : 'none';
+      document.getElementById('accountFields').style.display = isAccount ? 'flex' : 'none';
+      document.getElementById('keywordFieldRow').style.display = isAccount ? 'none' : 'flex';
       document.getElementById('researchKeywordLabel').textContent = isAffiliate ? '検索キーワード（任意）' : '検索キーワード';
       document.getElementById('researchKeyword').placeholder = isAffiliate
         ? '空欄でもOK（アフィリンク＋いいね数だけで収集）'
         : '例：マグカップ / 便利グッズ / 収納';
+      // アカウント指定モードはバズ以外も含めて観察したいので、いいね数下限を低めに（未編集の場合のみ）
+      const minLikesInput = document.getElementById('minLikes');
+      if (isAccount && minLikesInput.value === '300') minLikesInput.value = '50';
     });
   });
   // genre chips
@@ -644,7 +682,10 @@ async function runResearch() {
   const kw = document.getElementById('researchKeyword').value.trim();
   const minLikes = parseInt(document.getElementById('minLikes').value) || 0;
   const platform = document.querySelector('#platformChips .chip.on').dataset.platform;
+  const targetAccountsRaw = document.getElementById('targetAccounts').value.trim();
+  const targetAccounts = targetAccountsRaw ? targetAccountsRaw.split(/\s+/).map(a => a.replace(/^@/, '')) : [];
   if (mode === 'keyword' && !kw) { setStatus('researchStatus', 'キーワードを入力してください', 'err'); return; }
+  if (mode === 'account' && !targetAccounts.length) { setStatus('researchStatus', 'アカウントを入力してください', 'err'); return; }
 
   const btn = document.getElementById('researchBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>検索中...';
@@ -676,20 +717,32 @@ async function runResearch() {
     sinceClause = `since:${y}-${m}-${d}`;
   }
 
-  // アフィリンク検知モードではリプ欄のアフィリンクも拾うため replies を除外しない
-  const repliesClause = mode === 'affiliate' ? '' : '-filter:replies';
+  // アフィリンク検知/アカウント指定モードではリプ欄の投稿も拾うため replies を除外しない
+  const repliesClause = mode === 'keyword' ? '-filter:replies' : '';
+
+  // アカウント指定モード: from:account をORでまとめる（複数指定可）。
+  // アフィリンクの有無は問わないため、ドメインフィルタは「アフィリンク付きのみ」チェック時だけ付ける。
+  const onlyAffiliateLinks = mode === 'account' && document.getElementById('onlyAffiliateLinks').checked;
+  const accountsClause = targetAccounts.length
+    ? (targetAccounts.length === 1 ? `from:${targetAccounts[0]}` : '(' + targetAccounts.map(a => `from:${a}`).join(' OR ') + ')')
+    : '';
 
   // サーバークエリ（SocialDataのquery）は必要最小限にする。
   // 除外キーワード・除外アカウントはここに含めず、取得後のクライアント側フィルタ（下部）に寄せる。
   // 理由: 除外条件が増えるとSocialDataのquery上限（512文字）を超えてエラーになるため。
   const MAX_QUERY_LEN = 512;
-  let query = [kw, domFilter, `min_faves:${minLikes}`, repliesClause, sinceClause]
-    .filter(Boolean).join(' ');
+  // アカウント指定モードは from: が必須パーツ、それ以外のモードはドメインフィルタが必須パーツ
+  const essential = mode === 'account' ? accountsClause : domFilter;
+  const optionalParts = mode === 'account'
+    ? [`min_faves:${minLikes}`, onlyAffiliateLinks ? domFilter : '', sinceClause].filter(Boolean)
+    : [kw, `min_faves:${minLikes}`, repliesClause, sinceClause].filter(Boolean);
+
+  let query = [essential, ...optionalParts].filter(Boolean).join(' ');
   if (query.length > MAX_QUERY_LEN) {
-    // 念のためのガード。ドメインフィルタ（アフィリンク判定の要）は必ず残し、
-    // それ以外は優先度順（キーワード→いいね数→replies→期間）に収まる分だけ足す。
-    query = domFilter;
-    for (const part of [kw, `min_faves:${minLikes}`, repliesClause, sinceClause].filter(Boolean)) {
+    // 念のためのガード。必須パーツ（from: またはドメインフィルタ）は必ず残し、
+    // それ以外は優先度順に収まる分だけ足す。
+    query = essential;
+    for (const part of optionalParts) {
       const candidate = `${query} ${part}`;
       if (candidate.length <= MAX_QUERY_LEN) query = candidate;
     }
@@ -705,7 +758,7 @@ async function runResearch() {
 
   try {
     let tweets = [];
-    if (mode === 'affiliate') {
+    if (mode === 'affiliate' || mode === 'account') {
       const displayTarget = Math.max(parseInt(document.getElementById('fetchCount').value) || 50, 10);
       const rawTarget = displayTarget * OVERFETCH_MULTIPLIER;
       const deepFetch = document.getElementById('deepFetch').checked;
@@ -751,13 +804,14 @@ async function runResearch() {
 
     // 除外キーワード・除外アカウントはサーバークエリに含めていないため、
     // ここが除外処理の本体。本文への部分一致（-wordの単語単位マッチと違い「ガチャガチャ」も確実に弾ける）で判定する。
-    if (excludeWords.length) {
+    // アカウント指定モードは指定アカウントの投稿を全部見るのが目的のため、この除外フィルタは適用しない。
+    if (mode !== 'account' && excludeWords.length) {
       tweets = tweets.filter(t => {
         const text = t.full_text || t.text || '';
         return !excludeWords.some(w => text.includes(w));
       });
     }
-    if (excludeAccounts.length) {
+    if (mode !== 'account' && excludeAccounts.length) {
       const excludeSet = new Set(excludeAccounts.map(a => a.replace(/^@/, '').toLowerCase()));
       tweets = tweets.filter(t => !excludeSet.has((t.user && t.user.screen_name || '').toLowerCase()));
     }
@@ -780,6 +834,10 @@ function renderResearch(kw) {
   const list = document.getElementById('tweetList');
   wrap.style.display = 'block';
   if (!state.research.length) { list.innerHTML = '<div class="empty">結果なし</div>'; return; }
+
+  // アカウント指定モードは指定して見ているので「このアカウントを除外」ボタンは不要
+  const mode = document.querySelector('#searchModeChips .chip.on').dataset.mode;
+  const showExcludeBtn = mode !== 'account';
 
   list.innerHTML = state.research.map((t, i) => {
     const user = t.user || {};
@@ -813,7 +871,7 @@ function renderResearch(kw) {
       ${mediaHtml}
       <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="useForProduct('${kw.replace(/'/g,"")}')">この系統で商品を判定 →</button>
-        <button class="btn btn-ghost btn-sm" onclick="excludeAccount('${(user.screen_name||'').replace(/'/g,"")}')">🚫 このアカウントを除外</button>
+        ${showExcludeBtn ? `<button class="btn btn-ghost btn-sm" onclick="excludeAccount('${(user.screen_name||'').replace(/'/g,"")}')">🚫 このアカウントを除外</button>` : ''}
         <a href="${postUrl}" target="_blank" rel="noopener" style="font-size:12px">元ポストを見る↗</a>
       </div>
     </div>`;
