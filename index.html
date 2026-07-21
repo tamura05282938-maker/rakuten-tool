@@ -244,14 +244,36 @@
       <h2><span class="tag">①</span>参考投稿リサーチ</h2>
       <p class="desc">楽天アフィリンク付きの投稿を、いいね数で絞り込んで発掘します。良い商品の当たりをつける工程です。</p>
 
+      <label class="field">
+        <span>検索モード</span>
+        <div class="chips" id="searchModeChips">
+          <div class="chip on" data-mode="keyword">キーワード検索</div>
+          <div class="chip" data-mode="affiliate">アフィリンク検知</div>
+        </div>
+      </label>
+
       <div class="row">
         <label class="field" style="flex:2">
-          <span>検索キーワード</span>
+          <span id="researchKeywordLabel">検索キーワード</span>
           <input type="text" id="researchKeyword" placeholder="例：マグカップ / 便利グッズ / 収納">
         </label>
         <label class="field">
           <span>いいね数の下限</span>
           <input type="number" id="minLikes" value="300" min="0" step="50">
+        </label>
+      </div>
+
+      <div class="row" id="affiliateFields" style="display:none">
+        <label class="field">
+          <span>取得件数</span>
+          <input type="number" id="fetchCount" value="50" min="10" step="10">
+        </label>
+        <label class="field">
+          <span>&nbsp;</span>
+          <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px">
+            <input type="checkbox" id="deepFetch"> 大量取得（100件超を自動ページング）
+          </label>
+          <small style="color:var(--sub);font-size:11px;display:block;margin-top:4px">※ONにすると取得件数に応じてSocialDataへのリクエスト数が増えます（課金対象）</small>
         </label>
       </div>
 
@@ -531,6 +553,19 @@ function init() {
       c.classList.add('on');
     });
   });
+  // search mode chips
+  document.querySelectorAll('#searchModeChips .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('#searchModeChips .chip').forEach(x => x.classList.remove('on'));
+      c.classList.add('on');
+      const isAffiliate = c.dataset.mode === 'affiliate';
+      document.getElementById('affiliateFields').style.display = isAffiliate ? 'flex' : 'none';
+      document.getElementById('researchKeywordLabel').textContent = isAffiliate ? '検索キーワード（任意）' : '検索キーワード';
+      document.getElementById('researchKeyword').placeholder = isAffiliate
+        ? '空欄でもOK（アフィリンク＋いいね数だけで収集）'
+        : '例：マグカップ / 便利グッズ / 収納';
+    });
+  });
   // genre chips
   document.querySelectorAll('#genreChips .chip').forEach(c => {
     c.addEventListener('click', () => {
@@ -582,10 +617,11 @@ function clearStatus(id) { document.getElementById(id).className = 'status'; }
 
 // ============ ① リサーチ ============
 async function runResearch() {
+  const mode = document.querySelector('#searchModeChips .chip.on').dataset.mode;
   const kw = document.getElementById('researchKeyword').value.trim();
   const minLikes = parseInt(document.getElementById('minLikes').value) || 0;
   const platform = document.querySelector('#platformChips .chip.on').dataset.platform;
-  if (!kw) { setStatus('researchStatus', 'キーワードを入力してください', 'err'); return; }
+  if (mode === 'keyword' && !kw) { setStatus('researchStatus', 'キーワードを入力してください', 'err'); return; }
 
   const btn = document.getElementById('researchBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>検索中...';
@@ -616,22 +652,57 @@ async function runResearch() {
     sinceClause = `since:${y}-${m}-${d}`;
   }
 
-  const query = [kw, domFilter, `min_faves:${minLikes}`, '-filter:replies', excludeClause, sinceClause]
+  // アフィリンク検知モードではリプ欄のアフィリンクも拾うため replies を除外しない
+  const repliesClause = mode === 'affiliate' ? '' : '-filter:replies';
+
+  const query = [kw, domFilter, `min_faves:${minLikes}`, repliesClause, excludeClause, sinceClause]
     .filter(Boolean).join(' ');
-  console.log('[research query]', query);
+  console.log('[research query]', query, '(mode=' + mode + ')');
+
+  const socialdataKey = document.getElementById('socialdataKey').value.trim();
 
   try {
-    const socialdataKey = document.getElementById('socialdataKey').value.trim();
-    const res = await fetch(workerUrl() + '/search-tweets', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, count: 40, apiKey: socialdataKey || undefined })
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    let tweets = [];
+    if (mode === 'affiliate') {
+      const fetchCount = Math.max(parseInt(document.getElementById('fetchCount').value) || 50, 10);
+      const deepFetch = document.getElementById('deepFetch').checked;
+      const MAX_PAGES = 10; // 安全のため最大10ページ（約1000件）でストップ
+      let cursor;
+      let page = 0;
+      do {
+        page++;
+        const pageSize = Math.min(100, fetchCount - tweets.length);
+        const res = await fetch(workerUrl() + '/search-tweets', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, count: pageSize, apiKey: socialdataKey || undefined, cursor })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        const pageTweets = data.tweets || [];
+        tweets = tweets.concat(pageTweets);
+        cursor = data.next_cursor;
+        console.log('[research paging] page=' + page + ' got=' + pageTweets.length + ' total=' + tweets.length + ' next_cursor=' + cursor);
+        setStatus('researchStatus', `取得中... ${tweets.length}件`, 'info');
+        if (!deepFetch || !cursor || pageTweets.length === 0) break;
+      } while (tweets.length < fetchCount && page < MAX_PAGES);
+    } else {
+      const res = await fetch(workerUrl() + '/search-tweets', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, count: 40, apiKey: socialdataKey || undefined })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      tweets = data.tweets || [];
+    }
 
-    let tweets = data.tweets || [];
-    // いいね数で再フィルタ＆ソート
+    // 同一ツイートIDで重複除去 → いいね数で再フィルタ＆ソート
+    const seenIds = new Set();
     tweets = tweets
+      .filter(t => {
+        if (!t.id_str || seenIds.has(t.id_str)) return false;
+        seenIds.add(t.id_str);
+        return true;
+      })
       .filter(t => (t.favorite_count || 0) >= minLikes)
       .sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
 
