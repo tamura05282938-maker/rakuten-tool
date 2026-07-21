@@ -242,60 +242,32 @@
   <section class="panel active" data-panel="1">
     <div class="card">
       <h2><span class="tag">①</span>参考投稿リサーチ</h2>
-      <p class="desc">楽天アフィリンク付きの投稿を、いいね数で絞り込んで発掘します。良い商品の当たりをつける工程です。</p>
+      <p class="desc">競合・お手本アカウントの投稿を、いいね数で絞り込んで発掘します。良い商品の当たりをつける工程です。</p>
 
       <label class="field">
         <span>検索モード</span>
         <div class="chips" id="searchModeChips">
-          <div class="chip on" data-mode="keyword">キーワード検索</div>
-          <div class="chip" data-mode="affiliate">アフィリンク検知</div>
-          <div class="chip" data-mode="account">アカウント指定</div>
+          <div class="chip" data-mode="keyword">キーワード検索</div>
+          <div class="chip on" data-mode="account">アカウント指定</div>
         </div>
       </label>
 
-      <div class="row" id="keywordFieldRow">
-        <label class="field" style="flex:2">
-          <span id="researchKeywordLabel">検索キーワード</span>
+      <div class="row">
+        <label class="field" style="flex:2;display:none" id="keywordFieldWrap">
+          <span>検索キーワード</span>
           <input type="text" id="researchKeyword" placeholder="例：マグカップ / 便利グッズ / 収納">
         </label>
         <label class="field">
           <span>いいね数の下限</span>
-          <input type="number" id="minLikes" value="300" min="0" step="50">
+          <input type="number" id="minLikes" value="50" min="0" step="50">
         </label>
-      </div>
-
-      <div class="row" id="accountFields" style="display:none">
-        <label class="field" style="flex:2">
-          <span>アカウント（@なし、スペース区切りで複数可）</span>
-          <input type="text" id="targetAccounts" placeholder="例：yunnchan_926">
-        </label>
-        <label class="field">
-          <span>&nbsp;</span>
-          <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px">
-            <input type="checkbox" id="onlyAffiliateLinks"> アフィリンク付きの投稿のみに絞る
-          </label>
-        </label>
-      </div>
-
-      <div class="row" id="affiliateFields" style="display:none">
         <label class="field">
           <span>取得件数</span>
           <input type="number" id="fetchCount" value="50" min="10" step="10">
         </label>
-        <label class="field">
-          <span>&nbsp;</span>
-          <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px">
-            <input type="checkbox" id="deepFetch"> 大量取得（100件超を自動ページング）
-          </label>
-          <small style="color:var(--sub);font-size:11px;display:block;margin-top:4px">※ONにすると取得件数に応じてSocialDataへのリクエスト数が増えます（課金対象）</small>
-        </label>
       </div>
 
       <div class="row">
-        <label class="field" style="flex:2">
-          <span>除外キーワード（スペース区切り）</span>
-          <input type="text" id="excludeKeywords" placeholder="例：フィギュア 予約 グッズ">
-        </label>
         <label class="field">
           <span>投稿期間</span>
           <select id="periodFilter">
@@ -306,25 +278,40 @@
             <option value="180">直近6ヶ月</option>
           </select>
         </label>
-      </div>
-
-      <div class="row">
-        <label class="field" style="flex:2">
-          <span>除外アカウント（@なし、スペース区切り）</span>
-          <input type="text" id="excludeAccounts" placeholder="例：japancapsuletoy sanrio_oshikatu">
+        <label class="field">
+          <span>&nbsp;</span>
+          <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px">
+            <input type="checkbox" id="deepFetch"> 大量取得（100件超を自動ページング）
+          </label>
+          <small style="color:var(--sub);font-size:11px;display:block;margin-top:4px">※ONにすると取得件数に応じてSocialDataへのリクエスト数が増えます（課金対象）</small>
         </label>
       </div>
 
-      <label class="field">
-        <span>ジャンル</span>
-        <div class="chips" id="genreChips">
-          <div class="chip on" data-genre="none">指定なし</div>
-          <div class="chip" data-genre="fashion">ファッション</div>
-          <div class="chip" data-genre="goods">便利グッズ</div>
-          <div class="chip" data-genre="cosme">コスメ・美容</div>
-          <div class="chip" data-genre="kitchen">キッチン・日用品</div>
+      <div id="accountFields">
+        <label class="field">
+          <span>競合アカウントリスト（<span id="accountListCount">0</span>件登録 / <span id="accountSelectedCount">0</span>件選択中）</span>
+        </label>
+        <div class="row" style="margin-bottom:8px">
+          <input type="text" id="newAccountInput" placeholder="@なしでアカウント名を入力" style="flex:1">
+          <button class="btn btn-ghost btn-sm" onclick="addAccountToList()">＋追加</button>
+          <button class="btn btn-ghost btn-sm" onclick="selectAllAccounts()">全選択</button>
+          <button class="btn btn-ghost btn-sm" onclick="deselectAllAccounts()">全解除</button>
         </div>
-      </label>
+        <div class="row" style="align-items:flex-start">
+          <div class="field" style="flex:1;min-width:260px">
+            <span>登録済みアカウント</span>
+            <div id="accountListView" style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px"></div>
+          </div>
+          <div class="field" style="flex:1;min-width:260px">
+            <span>一括編集（改行区切り、@なし）</span>
+            <textarea id="accountBulkEdit" rows="9" style="font-family:monospace;font-size:12px"></textarea>
+            <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="saveBulkAccountList()">この内容で保存</button>
+          </div>
+        </div>
+        <label style="font-size:12px;color:var(--sub);display:flex;align-items:center;gap:6px;margin-top:10px">
+          <input type="checkbox" id="onlyAffiliateLinks"> アフィリンク付きの投稿のみに絞る
+        </label>
+      </div>
 
       <label class="field">
         <span>対象プラットフォーム</span>
@@ -495,6 +482,8 @@ const state = {
   replyText: '',
   images: [],       // {url, selected, order}
   postedItems: JSON.parse(localStorage.getItem('rk_posted') || '[]'),
+  accountList: [],       // 競合アカウントリスト（rk_account_list）
+  accountSelected: new Set(), // 検索対象として選択中のアカウント名
 };
 
 const DEFAULT_PROMPT = `あなたはX（旧Twitter）で楽天アフィリエイト商品を紹介する「共感型・女性アカウント風」の投稿を作成する専門ライターです。
@@ -538,19 +527,8 @@ const REPLY_PROMPT = `以下の投稿に続く、リプライ用の「商品は�
 
 // ============ 初期化 ============
 // ジャンルプリセット: 選択すると除外キーワード欄に自動セットされる語
-const GENRE_PRESETS = {
-  none: [],
-  fashion: ['フィギュア', '予約', 'グッズ', 'ガチャ', 'カプセル'],
-  goods: ['フィギュア', '予約', 'コスプレ', 'ガチャ'],
-  cosme: ['フィギュア', '予約', 'グッズ'],
-  kitchen: ['フィギュア', '予約', 'グッズ', 'ガチャ'],
-};
-
-// ノイズ源になりやすいグッズ・ガチャ・グラビア系アカウントの初期除外リスト
-const DEFAULT_EXCLUDE_ACCOUNTS = ['japancapsuletoy', 'sanrio_oshikatu', 'toman_goods', 'heisei_goods', 'clipnotebook', 'GravureNews2', 'Jewelpet_goods'];
-
-// アカウント指定モードでお手本として観察する初期アカウント
-const DEFAULT_TARGET_ACCOUNTS = ['yunnchan_926'];
+// アカウント指定モードで競合・お手本として観察する初期リスト
+const DEFAULT_ACCOUNT_LIST = ['yunnchan_926'];
 
 function init() {
   // 設定復元
@@ -562,38 +540,16 @@ function init() {
   const p = localStorage.getItem('rk_prompt');
   document.getElementById('genPrompt').value = p || DEFAULT_PROMPT;
 
-  // 除外キーワード復元・自動保存
-  const ex = localStorage.getItem('rk_exclude');
-  if (ex) document.getElementById('excludeKeywords').value = ex;
-  document.getElementById('excludeKeywords').addEventListener('input', (e) => {
-    localStorage.setItem('rk_exclude', e.target.value);
-  });
-
-  // 除外アカウント復元（未設定時は初期リストを自動セット）・自動保存
-  const exAcc = localStorage.getItem('rk_exclude_accounts');
-  const exAccInput = document.getElementById('excludeAccounts');
-  if (exAcc !== null) {
-    exAccInput.value = exAcc;
+  // 競合アカウントリスト復元（未設定時は初期リストを自動セット）
+  const savedList = localStorage.getItem('rk_account_list');
+  if (savedList !== null) {
+    try { state.accountList = JSON.parse(savedList); } catch (e) { state.accountList = DEFAULT_ACCOUNT_LIST.slice(); }
   } else {
-    exAccInput.value = DEFAULT_EXCLUDE_ACCOUNTS.join(' ');
-    localStorage.setItem('rk_exclude_accounts', exAccInput.value);
+    state.accountList = DEFAULT_ACCOUNT_LIST.slice();
+    localStorage.setItem('rk_account_list', JSON.stringify(state.accountList));
   }
-  exAccInput.addEventListener('input', (e) => {
-    localStorage.setItem('rk_exclude_accounts', e.target.value);
-  });
-
-  // 観察対象アカウント復元（未設定時は初期リストを自動セット）・自動保存
-  const tgtAcc = localStorage.getItem('rk_target_accounts');
-  const tgtAccInput = document.getElementById('targetAccounts');
-  if (tgtAcc !== null) {
-    tgtAccInput.value = tgtAcc;
-  } else {
-    tgtAccInput.value = DEFAULT_TARGET_ACCOUNTS.join(' ');
-    localStorage.setItem('rk_target_accounts', tgtAccInput.value);
-  }
-  tgtAccInput.addEventListener('input', (e) => {
-    localStorage.setItem('rk_target_accounts', e.target.value);
-  });
+  state.accountSelected = new Set(state.accountList); // 初期状態は全選択
+  renderAccountList();
 
   // stepper
   document.querySelectorAll('.step-btn').forEach(b => {
@@ -612,34 +568,87 @@ function init() {
       document.querySelectorAll('#searchModeChips .chip').forEach(x => x.classList.remove('on'));
       c.classList.add('on');
       const newMode = c.dataset.mode;
-      const isAffiliate = newMode === 'affiliate';
       const isAccount = newMode === 'account';
-      // 取得件数・大量取得トグルはアフィリンク検知/アカウント指定の両モードで使う
-      document.getElementById('affiliateFields').style.display = (isAffiliate || isAccount) ? 'flex' : 'none';
-      document.getElementById('accountFields').style.display = isAccount ? 'flex' : 'none';
-      document.getElementById('keywordFieldRow').style.display = isAccount ? 'none' : 'flex';
-      document.getElementById('researchKeywordLabel').textContent = isAffiliate ? '検索キーワード（任意）' : '検索キーワード';
-      document.getElementById('researchKeyword').placeholder = isAffiliate
-        ? '空欄でもOK（アフィリンク＋いいね数だけで収集）'
-        : '例：マグカップ / 便利グッズ / 収納';
-      // アカウント指定モードはバズ以外も含めて観察したいので、いいね数下限を低めに（未編集の場合のみ）
+      document.getElementById('accountFields').style.display = isAccount ? 'block' : 'none';
+      document.getElementById('keywordFieldWrap').style.display = isAccount ? 'none' : 'block';
+      // モードごとに使いやすいいいね数下限を初期提案（未編集の場合のみ上書き）
       const minLikesInput = document.getElementById('minLikes');
       if (isAccount && minLikesInput.value === '300') minLikesInput.value = '50';
+      if (!isAccount && minLikesInput.value === '50') minLikesInput.value = '300';
     });
   });
-  // genre chips
-  document.querySelectorAll('#genreChips .chip').forEach(c => {
-    c.addEventListener('click', () => {
-      document.querySelectorAll('#genreChips .chip').forEach(x => x.classList.remove('on'));
-      c.classList.add('on');
-      const words = GENRE_PRESETS[c.dataset.genre] || [];
-      if (words.length) {
-        const excludeInput = document.getElementById('excludeKeywords');
-        excludeInput.value = words.join(' ');
-        localStorage.setItem('rk_exclude', excludeInput.value);
-      }
-    });
-  });
+}
+
+// ============ 競合アカウントリスト管理 ============
+function saveAccountList() {
+  localStorage.setItem('rk_account_list', JSON.stringify(state.accountList));
+}
+
+function renderAccountList() {
+  const view = document.getElementById('accountListView');
+  document.getElementById('accountListCount').textContent = state.accountList.length;
+  document.getElementById('accountSelectedCount').textContent = state.accountSelected.size;
+
+  view.innerHTML = state.accountList.length
+    ? state.accountList.map(name => `
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--line);font-size:13px">
+        <input type="checkbox" ${state.accountSelected.has(name) ? 'checked' : ''} onchange="toggleAccountSelected('${name.replace(/'/g,"")}', this.checked)">
+        <span style="flex:1">@${name.replace(/</g,'')}</span>
+        <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="deleteAccountFromList('${name.replace(/'/g,"")}')">削除</button>
+      </div>
+    `).join('')
+    : '<div class="empty" style="padding:8px;font-size:13px">未登録です。上の欄からアカウントを追加してください</div>';
+
+  // 一括編集欄も同期（フォーカス中は上書きしない）
+  const bulk = document.getElementById('accountBulkEdit');
+  if (document.activeElement !== bulk) bulk.value = state.accountList.join('\n');
+}
+
+function addAccountToList() {
+  const input = document.getElementById('newAccountInput');
+  const name = input.value.trim().replace(/^@/, '');
+  if (!name) return;
+  if (!state.accountList.includes(name)) {
+    state.accountList.push(name);
+    state.accountSelected.add(name);
+    saveAccountList();
+    renderAccountList();
+  }
+  input.value = '';
+}
+
+function deleteAccountFromList(name) {
+  state.accountList = state.accountList.filter(a => a !== name);
+  state.accountSelected.delete(name);
+  saveAccountList();
+  renderAccountList();
+}
+
+function toggleAccountSelected(name, checked) {
+  if (checked) state.accountSelected.add(name);
+  else state.accountSelected.delete(name);
+  document.getElementById('accountSelectedCount').textContent = state.accountSelected.size;
+}
+
+function selectAllAccounts() {
+  state.accountSelected = new Set(state.accountList);
+  renderAccountList();
+}
+
+function deselectAllAccounts() {
+  state.accountSelected = new Set();
+  renderAccountList();
+}
+
+function saveBulkAccountList() {
+  const raw = document.getElementById('accountBulkEdit').value;
+  const names = raw.split('\n').map(s => s.trim().replace(/^@/, '')).filter(Boolean);
+  const deduped = [...new Set(names)];
+  state.accountList = deduped;
+  state.accountSelected = new Set(deduped); // 全件登録し直すため全選択に戻す
+  saveAccountList();
+  renderAccountList();
+  setStatus('researchStatus', `${deduped.length}件のアカウントリストを保存しました`, 'info');
 }
 
 function goStep(n) {
@@ -676,34 +685,30 @@ function setStatus(id, msg, type) {
 }
 function clearStatus(id) { document.getElementById(id).className = 'status'; }
 
+const RAKUTEN_LINK_DOMAINS = ['a.r10.to', 'hb.afl.rakuten.co.jp', 'room.rakuten.co.jp'];
+const AMAZON_LINK_DOMAINS = ['amzn.to', 'amzn.asia', 'amazon.co.jp'];
+
 // ============ ① リサーチ ============
 async function runResearch() {
   const mode = document.querySelector('#searchModeChips .chip.on').dataset.mode;
   const kw = document.getElementById('researchKeyword').value.trim();
   const minLikes = parseInt(document.getElementById('minLikes').value) || 0;
   const platform = document.querySelector('#platformChips .chip.on').dataset.platform;
-  const targetAccountsRaw = document.getElementById('targetAccounts').value.trim();
-  const targetAccounts = targetAccountsRaw ? targetAccountsRaw.split(/\s+/).map(a => a.replace(/^@/, '')) : [];
+  const selectedAccounts = state.accountList.filter(a => state.accountSelected.has(a));
   if (mode === 'keyword' && !kw) { setStatus('researchStatus', 'キーワードを入力してください', 'err'); return; }
-  if (mode === 'account' && !targetAccounts.length) { setStatus('researchStatus', 'アカウントを入力してください', 'err'); return; }
+  if (mode === 'account' && !selectedAccounts.length) { setStatus('researchStatus', '検索するアカウントにチェックを入れてください', 'err'); return; }
 
   const btn = document.getElementById('researchBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>検索中...';
   setStatus('researchStatus', 'SocialDataで検索中...', 'info');
 
-  // 楽天/アマゾンのドメインフィルタ
-  const rakutenDom = '(url:a.r10.to OR url:hb.afl.rakuten.co.jp OR url:room.rakuten.co.jp)';
-  const amazonDom = '(url:amzn.to OR url:amzn.asia OR url:amazon.co.jp)';
+  // 楽天/アマゾンのドメインフィルタ（キーワードモードのクエリで使用）
+  const rakutenDom = '(' + RAKUTEN_LINK_DOMAINS.map(d => `url:${d}`).join(' OR ') + ')';
+  const amazonDom = '(' + AMAZON_LINK_DOMAINS.map(d => `url:${d}`).join(' OR ') + ')';
   let domFilter = '';
   if (platform === 'rakuten') domFilter = rakutenDom;
   else if (platform === 'amazon') domFilter = amazonDom;
   else domFilter = '(' + rakutenDom + ' OR ' + amazonDom + ')';
-
-  // 除外キーワード・除外アカウントはサーバークエリに含めず、取得後のクライアント側フィルタで適用する
-  const excludeRaw = document.getElementById('excludeKeywords').value.trim();
-  const excludeWords = excludeRaw ? excludeRaw.split(/\s+/) : [];
-  const excludeAccountsRaw = document.getElementById('excludeAccounts').value.trim();
-  const excludeAccounts = excludeAccountsRaw ? excludeAccountsRaw.split(/\s+/) : [];
 
   // 投稿期間フィルタ
   const periodDays = document.getElementById('periodFilter').value;
@@ -717,79 +722,75 @@ async function runResearch() {
     sinceClause = `since:${y}-${m}-${d}`;
   }
 
-  // アフィリンク検知/アカウント指定モードではリプ欄の投稿も拾うため replies を除外しない
-  const repliesClause = mode === 'keyword' ? '-filter:replies' : '';
-
-  // アカウント指定モード: from:account をORでまとめる（複数指定可）。
-  // アフィリンクの有無は問わないため、ドメインフィルタは「アフィリンク付きのみ」チェック時だけ付ける。
-  const onlyAffiliateLinks = mode === 'account' && document.getElementById('onlyAffiliateLinks').checked;
-  const accountsClause = targetAccounts.length
-    ? (targetAccounts.length === 1 ? `from:${targetAccounts[0]}` : '(' + targetAccounts.map(a => `from:${a}`).join(' OR ') + ')')
-    : '';
-
-  // サーバークエリ（SocialDataのquery）は必要最小限にする。
-  // 除外キーワード・除外アカウントはここに含めず、取得後のクライアント側フィルタ（下部）に寄せる。
-  // 理由: 除外条件が増えるとSocialDataのquery上限（512文字）を超えてエラーになるため。
-  const MAX_QUERY_LEN = 512;
-  // アカウント指定モードは from: が必須パーツ、それ以外のモードはドメインフィルタが必須パーツ
-  const essential = mode === 'account' ? accountsClause : domFilter;
-  const optionalParts = mode === 'account'
-    ? [`min_faves:${minLikes}`, onlyAffiliateLinks ? domFilter : '', sinceClause].filter(Boolean)
-    : [kw, `min_faves:${minLikes}`, repliesClause, sinceClause].filter(Boolean);
-
-  let query = [essential, ...optionalParts].filter(Boolean).join(' ');
-  if (query.length > MAX_QUERY_LEN) {
-    // 念のためのガード。必須パーツ（from: またはドメインフィルタ）は必ず残し、
-    // それ以外は優先度順に収まる分だけ足す。
-    query = essential;
-    for (const part of optionalParts) {
-      const candidate = `${query} ${part}`;
-      if (candidate.length <= MAX_QUERY_LEN) query = candidate;
-    }
-    console.warn('[research query] 512文字上限のため一部条件を省略しました');
-  }
-  console.log('[research query]', query, `(${query.length}文字 / mode=${mode})`);
-
+  const displayTarget = Math.max(parseInt(document.getElementById('fetchCount').value) || 50, 10);
+  const deepFetch = document.getElementById('deepFetch').checked;
   const socialdataKey = document.getElementById('socialdataKey').value.trim();
+  const MAX_QUERY_LEN = 512;
+  const MAX_TOTAL_PAGES = 10; // 全体でのページ取得上限（課金保護）。アカウントを分割してもこの合計を超えない
 
-  // 除外はクライアント側フィルタが主軸になったため、フィルタで減る分を見込んで
-  // 表示目標より多めに（2〜3倍）生で取得しておく。課金に配慮しMAX_PAGESで上限を設ける。
-  const OVERFETCH_MULTIPLIER = 3;
+  // 必須パーツ（essential）は必ず残し、それ以外は512文字に収まる分だけ足すガード
+  function buildQuery(essential, optionalParts) {
+    let q = [essential, ...optionalParts].filter(Boolean).join(' ');
+    if (q.length > MAX_QUERY_LEN) {
+      q = essential;
+      for (const part of optionalParts) {
+        const candidate = `${q} ${part}`;
+        if (candidate.length <= MAX_QUERY_LEN) q = candidate;
+      }
+      console.warn('[research query] 512文字上限のため一部条件を省略しました:', essential);
+    }
+    return q;
+  }
 
-  try {
-    let tweets = [];
-    if (mode === 'affiliate' || mode === 'account') {
-      const displayTarget = Math.max(parseInt(document.getElementById('fetchCount').value) || 50, 10);
-      const rawTarget = displayTarget * OVERFETCH_MULTIPLIER;
-      const deepFetch = document.getElementById('deepFetch').checked;
-      const MAX_PAGES = 10; // 安全のため最大10ページ（約1000件）でストップ
-      let cursor;
-      let page = 0;
-      do {
-        page++;
-        const pageSize = Math.min(100, rawTarget - tweets.length);
-        const res = await fetch(workerUrl() + '/search-tweets', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query, count: pageSize, apiKey: socialdataKey || undefined, cursor })
-        });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        const pageTweets = data.tweets || [];
-        tweets = tweets.concat(pageTweets);
-        cursor = data.next_cursor;
-        console.log('[research paging] page=' + page + ' got=' + pageTweets.length + ' total=' + tweets.length + '/' + rawTarget + '(生取得目標) next_cursor=' + cursor);
-        setStatus('researchStatus', `取得中... ${tweets.length}件`, 'info');
-        if (!deepFetch || !cursor || pageTweets.length === 0) break;
-      } while (tweets.length < rawTarget && page < MAX_PAGES);
-    } else {
-      // キーワードモードは単発リクエストのまま、除外フィルタで減る分を見込んで多めに取得
+  let pagesUsed = 0;
+  // 1クエリ分のページング取得（cursorで指定件数に達するか、上限に達するまで）
+  async function fetchByQuery(q, rawTarget) {
+    let collected = [];
+    let cursor;
+    let localPage = 0;
+    do {
+      if (pagesUsed >= MAX_TOTAL_PAGES) break;
+      localPage++; pagesUsed++;
+      const pageSize = Math.min(100, rawTarget - collected.length);
       const res = await fetch(workerUrl() + '/search-tweets', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, count: Math.min(100, 40 * OVERFETCH_MULTIPLIER), apiKey: socialdataKey || undefined })
+        body: JSON.stringify({ query: q, count: pageSize, apiKey: socialdataKey || undefined, cursor })
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      tweets = data.tweets || [];
+      const pageTweets = data.tweets || [];
+      collected = collected.concat(pageTweets);
+      cursor = data.next_cursor;
+      console.log(`[research paging] query="${q}" page=${localPage} got=${pageTweets.length} total=${collected.length}/${rawTarget} pagesUsed=${pagesUsed}/${MAX_TOTAL_PAGES} next_cursor=${cursor}`);
+      setStatus('researchStatus', `取得中... ${collected.length}件`, 'info');
+      if (!deepFetch || !cursor || pageTweets.length === 0) break;
+    } while (collected.length < rawTarget && pagesUsed < MAX_TOTAL_PAGES);
+    return collected;
+  }
+
+  try {
+    let tweets = [];
+    if (mode === 'account') {
+      // from:account を10件ずつのチャンクに分割し、各チャンクを個別にリクエスト（512文字対策）
+      const CHUNK_SIZE = 10;
+      const chunks = [];
+      for (let i = 0; i < selectedAccounts.length; i += CHUNK_SIZE) chunks.push(selectedAccounts.slice(i, i + CHUNK_SIZE));
+
+      for (const chunk of chunks) {
+        if (pagesUsed >= MAX_TOTAL_PAGES) break;
+        const accountsClause = chunk.length === 1 ? `from:${chunk[0]}` : '(' + chunk.map(a => `from:${a}`).join(' OR ') + ')';
+        const optionalParts = [`min_faves:${minLikes}`, sinceClause].filter(Boolean);
+        const q = buildQuery(accountsClause, optionalParts);
+        console.log('[research query]', q, `(${q.length}文字 / chunk=[${chunk.join(',')}])`);
+        const chunkTweets = await fetchByQuery(q, displayTarget);
+        tweets = tweets.concat(chunkTweets);
+      }
+    } else {
+      // キーワードモードはリプ欄を除いたシンプルな単発検索（保険用途）
+      const optionalParts = [kw, `min_faves:${minLikes}`, '-filter:replies', sinceClause].filter(Boolean);
+      const q = buildQuery(domFilter, optionalParts);
+      console.log('[research query]', q, `(${q.length}文字 / mode=keyword)`);
+      tweets = await fetchByQuery(q, displayTarget);
     }
 
     // 同一ツイートIDで重複除去 → いいね数で再フィルタ
@@ -802,25 +803,23 @@ async function runResearch() {
       })
       .filter(t => (t.favorite_count || 0) >= minLikes);
 
-    // 除外キーワード・除外アカウントはサーバークエリに含めていないため、
-    // ここが除外処理の本体。本文への部分一致（-wordの単語単位マッチと違い「ガチャガチャ」も確実に弾ける）で判定する。
-    // アカウント指定モードは指定アカウントの投稿を全部見るのが目的のため、この除外フィルタは適用しない。
-    if (mode !== 'account' && excludeWords.length) {
+    // アカウント指定モードの「アフィリンク付きのみ」: 取得後に本文/entities.urlsを見て絞り込む
+    if (mode === 'account' && document.getElementById('onlyAffiliateLinks').checked) {
+      const linkDomains = platform === 'rakuten' ? RAKUTEN_LINK_DOMAINS
+        : platform === 'amazon' ? AMAZON_LINK_DOMAINS
+        : RAKUTEN_LINK_DOMAINS.concat(AMAZON_LINK_DOMAINS);
       tweets = tweets.filter(t => {
-        const text = t.full_text || t.text || '';
-        return !excludeWords.some(w => text.includes(w));
+        const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
+        const haystack = urlText + ' ' + (t.full_text || t.text || '');
+        return linkDomains.some(d => haystack.includes(d));
       });
-    }
-    if (mode !== 'account' && excludeAccounts.length) {
-      const excludeSet = new Set(excludeAccounts.map(a => a.replace(/^@/, '').toLowerCase()));
-      tweets = tweets.filter(t => !excludeSet.has((t.user && t.user.screen_name || '').toLowerCase()));
     }
 
     tweets.sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
 
     state.research = tweets;
     renderResearch(kw);
-    if (tweets.length === 0) setStatus('researchStatus', '条件に合う投稿が見つかりませんでした。いいね数を下げる/キーワードを変えてみてください。', 'info');
+    if (tweets.length === 0) setStatus('researchStatus', '条件に合う投稿が見つかりませんでした。いいね数を下げる/対象を増やしてみてください。', 'info');
     else clearStatus('researchStatus');
   } catch (e) {
     setStatus('researchStatus', 'エラー: ' + e.message, 'err');
@@ -834,10 +833,6 @@ function renderResearch(kw) {
   const list = document.getElementById('tweetList');
   wrap.style.display = 'block';
   if (!state.research.length) { list.innerHTML = '<div class="empty">結果なし</div>'; return; }
-
-  // アカウント指定モードは指定して見ているので「このアカウントを除外」ボタンは不要
-  const mode = document.querySelector('#searchModeChips .chip.on').dataset.mode;
-  const showExcludeBtn = mode !== 'account';
 
   list.innerHTML = state.research.map((t, i) => {
     const user = t.user || {};
@@ -871,7 +866,6 @@ function renderResearch(kw) {
       ${mediaHtml}
       <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="useForProduct('${kw.replace(/'/g,"")}')">この系統で商品を判定 →</button>
-        ${showExcludeBtn ? `<button class="btn btn-ghost btn-sm" onclick="excludeAccount('${(user.screen_name||'').replace(/'/g,"")}')">🚫 このアカウントを除外</button>` : ''}
         <a href="${postUrl}" target="_blank" rel="noopener" style="font-size:12px">元ポストを見る↗</a>
       </div>
     </div>`;
@@ -881,18 +875,6 @@ function renderResearch(kw) {
 function useForProduct(kw) {
   document.getElementById('searchKeyword').value = kw;
   goStep(2);
-}
-
-function excludeAccount(screenName) {
-  if (!screenName) return;
-  const input = document.getElementById('excludeAccounts');
-  const words = input.value.trim() ? input.value.trim().split(/\s+/) : [];
-  if (!words.includes(screenName)) {
-    words.push(screenName);
-    input.value = words.join(' ');
-    localStorage.setItem('rk_exclude_accounts', input.value);
-  }
-  setStatus('researchStatus', `@${screenName} を除外アカウントに追加しました。再検索すると反映されます。`, 'info');
 }
 
 // ============ ② 商品判定 ============
