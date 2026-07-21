@@ -294,6 +294,13 @@
         </label>
       </div>
 
+      <div class="row">
+        <label class="field" style="flex:2">
+          <span>除外アカウント（@なし、スペース区切り）</span>
+          <input type="text" id="excludeAccounts" placeholder="例：japancapsuletoy sanrio_oshikatu">
+        </label>
+      </div>
+
       <label class="field">
         <span>ジャンル</span>
         <div class="chips" id="genreChips">
@@ -525,6 +532,9 @@ const GENRE_PRESETS = {
   kitchen: ['フィギュア', '予約', 'グッズ', 'ガチャ'],
 };
 
+// ノイズ源になりやすいグッズ・ガチャ・グラビア系アカウントの初期除外リスト
+const DEFAULT_EXCLUDE_ACCOUNTS = ['japancapsuletoy', 'sanrio_oshikatu', 'toman_goods', 'heisei_goods', 'clipnotebook', 'GravureNews2', 'Jewelpet_goods'];
+
 function init() {
   // 設定復元
   const ws = localStorage.getItem('rk_worker'); if (ws) document.getElementById('workerUrl').value = ws;
@@ -540,6 +550,19 @@ function init() {
   if (ex) document.getElementById('excludeKeywords').value = ex;
   document.getElementById('excludeKeywords').addEventListener('input', (e) => {
     localStorage.setItem('rk_exclude', e.target.value);
+  });
+
+  // 除外アカウント復元（未設定時は初期リストを自動セット）・自動保存
+  const exAcc = localStorage.getItem('rk_exclude_accounts');
+  const exAccInput = document.getElementById('excludeAccounts');
+  if (exAcc !== null) {
+    exAccInput.value = exAcc;
+  } else {
+    exAccInput.value = DEFAULT_EXCLUDE_ACCOUNTS.join(' ');
+    localStorage.setItem('rk_exclude_accounts', exAccInput.value);
+  }
+  exAccInput.addEventListener('input', (e) => {
+    localStorage.setItem('rk_exclude_accounts', e.target.value);
   });
 
   // stepper
@@ -640,6 +663,11 @@ async function runResearch() {
   const excludeWords = excludeRaw ? excludeRaw.split(/\s+/) : [];
   const excludeClause = excludeWords.map(w => `-${w}`).join(' ');
 
+  // 除外アカウント
+  const excludeAccountsRaw = document.getElementById('excludeAccounts').value.trim();
+  const excludeAccounts = excludeAccountsRaw ? excludeAccountsRaw.split(/\s+/) : [];
+  const excludeAccountsClause = excludeAccounts.map(a => `-from:${a.replace(/^@/, '')}`).join(' ');
+
   // 投稿期間フィルタ
   const periodDays = document.getElementById('periodFilter').value;
   let sinceClause = '';
@@ -655,7 +683,7 @@ async function runResearch() {
   // アフィリンク検知モードではリプ欄のアフィリンクも拾うため replies を除外しない
   const repliesClause = mode === 'affiliate' ? '' : '-filter:replies';
 
-  const query = [kw, domFilter, `min_faves:${minLikes}`, repliesClause, excludeClause, sinceClause]
+  const query = [kw, domFilter, `min_faves:${minLikes}`, repliesClause, excludeClause, excludeAccountsClause, sinceClause]
     .filter(Boolean).join(' ');
   console.log('[research query]', query, '(mode=' + mode + ')');
 
@@ -695,7 +723,7 @@ async function runResearch() {
       tweets = data.tweets || [];
     }
 
-    // 同一ツイートIDで重複除去 → いいね数で再フィルタ＆ソート
+    // 同一ツイートIDで重複除去 → いいね数で再フィルタ
     const seenIds = new Set();
     tweets = tweets
       .filter(t => {
@@ -703,8 +731,24 @@ async function runResearch() {
         seenIds.add(t.id_str);
         return true;
       })
-      .filter(t => (t.favorite_count || 0) >= minLikes)
-      .sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
+      .filter(t => (t.favorite_count || 0) >= minLikes);
+
+    // クライアント側の再フィルタ（保険）
+    // SocialData/Xの -word は「ガチャ」のような部分一致ではなく単語単位のマッチのため、
+    // -ガチャ を指定しても「ガチャガチャ」等の複合語が除外しきれないことがある。
+    // 取得後にも本文へ部分一致で除外語チェックをかけて確実に弾く。
+    if (excludeWords.length) {
+      tweets = tweets.filter(t => {
+        const text = t.full_text || t.text || '';
+        return !excludeWords.some(w => text.includes(w));
+      });
+    }
+    if (excludeAccounts.length) {
+      const excludeSet = new Set(excludeAccounts.map(a => a.replace(/^@/, '').toLowerCase()));
+      tweets = tweets.filter(t => !excludeSet.has((t.user && t.user.screen_name || '').toLowerCase()));
+    }
+
+    tweets.sort((a, b) => (b.favorite_count || 0) - (a.favorite_count || 0));
 
     state.research = tweets;
     renderResearch(kw);
@@ -753,8 +797,9 @@ function renderResearch(kw) {
       </div>
       <div class="text" style="font-size:13px">${text}</div>
       ${mediaHtml}
-      <div style="margin-top:10px;display:flex;gap:6px;align-items:center">
+      <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" onclick="useForProduct('${kw.replace(/'/g,"")}')">この系統で商品を判定 →</button>
+        <button class="btn btn-ghost btn-sm" onclick="excludeAccount('${(user.screen_name||'').replace(/'/g,"")}')">🚫 このアカウントを除外</button>
         <a href="${postUrl}" target="_blank" rel="noopener" style="font-size:12px">元ポストを見る↗</a>
       </div>
     </div>`;
@@ -764,6 +809,18 @@ function renderResearch(kw) {
 function useForProduct(kw) {
   document.getElementById('searchKeyword').value = kw;
   goStep(2);
+}
+
+function excludeAccount(screenName) {
+  if (!screenName) return;
+  const input = document.getElementById('excludeAccounts');
+  const words = input.value.trim() ? input.value.trim().split(/\s+/) : [];
+  if (!words.includes(screenName)) {
+    words.push(screenName);
+    input.value = words.join(' ');
+    localStorage.setItem('rk_exclude_accounts', input.value);
+  }
+  setStatus('researchStatus', `@${screenName} を除外アカウントに追加しました。再検索すると反映されます。`, 'info');
 }
 
 // ============ ② 商品判定 ============
