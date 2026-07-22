@@ -329,7 +329,7 @@
           <div class="chip" data-platform="amazon">Amazonのみ</div>
           <div class="chip on" data-platform="both">両方</div>
         </div>
-        <small style="color:var(--sub);font-size:11px;display:block;margin-top:6px">※「楽天のみ」「Amazonのみ」は、まず投稿本文・添付リンクで判定し、判定できなかった投稿はリプ欄も確認します（上のリプ確認上限まで）。上限を超えた分や、リプでも判定できなかった投稿は表示されません。すべて見たい場合は「両方」を選んでください</small>
+        <small style="color:var(--sub);font-size:11px;display:block;margin-top:6px">※「楽天のみ」「Amazonのみ」は、まず投稿本文・添付リンクで判定し、判定できなかった投稿はリプ欄も確認します（上のリプ確認上限まで）。取りこぼしを防ぐため、他方のプラットフォームと確定できた投稿だけを除外する方式です。判定できなかった投稿はそのまま表示され「🔍判定不能」バッジが付きます（目視でご確認ください）</small>
       </label>
 
       <div class="toolbar">
@@ -505,7 +505,8 @@ function saveReplyCache() {
 
 // リプ欄（コメント）を確認して楽天/Amazonドメインの有無を判定する。結果はキャッシュして再リクエストを避ける
 async function checkPlatformInReplies(tweetId, apiKey) {
-  if (state.replyCache[tweetId]) {
+  // 'error' はキャッシュしない（一時的な失敗の可能性があり、再検索のたびにリトライできるようにする）
+  if (state.replyCache[tweetId] && state.replyCache[tweetId] !== 'error') {
     console.log('[reply-check] tweet=' + tweetId + ' (キャッシュ) result=' + state.replyCache[tweetId]);
     return state.replyCache[tweetId];
   }
@@ -515,8 +516,10 @@ async function checkPlatformInReplies(tweetId, apiKey) {
       body: JSON.stringify({ id: tweetId, apiKey: apiKey || undefined })
     });
     const data = await res.json();
-    console.log('[reply-check] tweet=' + tweetId + ' raw response:', data);
-    if (data.error) throw new Error(data.error);
+    if (!res.ok || data.error) {
+      console.error('[reply-check] tweet=' + tweetId + ' API error: HTTP ' + res.status, data);
+      throw new Error(data.error || ('HTTP ' + res.status));
+    }
     const comments = data.tweets || [];
     const haystack = comments.map(buildLinkHaystack).join(' ');
     let result = 'none';
@@ -893,22 +896,31 @@ async function runResearch() {
         });
       });
 
-      // ②本文で判定できなかった投稿は、いいね数上位から上限件数までリプ欄を確認
+      // ②本文で判定できなかった投稿は、いいね数上位から上限件数までリプ欄を確認（できれば確定させる。失敗しても後段で取りこぼさない）
       const replyCheckLimit = Math.max(parseInt(document.getElementById('replyCheckLimit').value) || 0, 0);
       const candidates = tweets.filter(t => t._platformResult === 'unknown').slice(0, replyCheckLimit);
       console.log(`[reply-check] 本文で未判定=${tweets.filter(t => t._platformResult === 'unknown').length}件中、上限${replyCheckLimit}件をリプ確認します`);
+      let replyErrorCount = 0;
       for (let i = 0; i < candidates.length; i++) {
         const t = candidates[i];
         setStatus('researchStatus', `リプ確認中... ${i + 1}/${candidates.length}件`, 'info');
         const result = await checkPlatformInReplies(t.id_str, socialdataKey);
         if (result === 'rakuten' || result === 'amazon') { t._platformResult = result; t._platformSource = 'reply'; }
+        else if (result === 'error') replyErrorCount++;
       }
-      console.log(`[reply-check] 完了。リプ確認対象=${candidates.length}件`);
+      console.log(`[reply-check] 完了。リプ確認対象=${candidates.length}件 / うちエラー=${replyErrorCount}件`);
+      if (candidates.length > 0 && replyErrorCount === candidates.length) {
+        console.error('[reply-check] リプ確認が全件エラーで失敗しています。SocialData側のアクセス制限、またはエンドポイント不整合の可能性が高いです。判定不能扱い（引き算方式で表示）にフォールバックします。');
+      }
 
-      // ③選択したプラットフォームと確定した投稿だけ表示（上限を超えて未判定のものは除外）
-      const excluded = tweets.filter(t => t._platformResult !== platform);
-      if (excluded.length) console.log(`[platform-check] ${platform}以外と判定/未判定で除外=${excluded.length}件:`, excluded.map(t => ({ id: t.id_str, result: t._platformResult })));
-      tweets = tweets.filter(t => t._platformResult === platform);
+      // ③「引き算方式」：他プラットフォームと確定したものだけ除外し、それ以外（対象プラットフォーム確定＋判定不能）は表示する。
+      // リプ確認が失敗しても楽天投稿を取りこぼさないための方針。判定不能には後述のバッジを付けて目視判断できるようにする。
+      const otherPlatform = platform === 'rakuten' ? 'amazon' : 'rakuten';
+      const excluded = tweets.filter(t => t._platformResult === otherPlatform);
+      if (excluded.length) console.log(`[platform-check] ${otherPlatform}と確定して除外=${excluded.length}件:`, excluded.map(t => ({ id: t.id_str, source: t._platformSource })));
+      const unresolvedCount = tweets.filter(t => t._platformResult === 'unknown').length;
+      if (unresolvedCount) console.log(`[platform-check] 判定不能のまま表示=${unresolvedCount}件`);
+      tweets = tweets.filter(t => t._platformResult !== otherPlatform);
     } else if (mode === 'account' && platform === 'both' && document.getElementById('onlyAffiliateLinks').checked) {
       // 「両方」はリプ確認を行わない軽量ルート。本文のみで楽天/Amazonいずれかのリンクがあるものに絞る
       const linkDomains = RAKUTEN_LINK_DOMAINS_CHECK.concat(AMAZON_LINK_DOMAINS);
@@ -960,6 +972,8 @@ function renderResearch(kw) {
       ? '<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px">🔁リプで確認</span>'
       : t._platformSource === 'body'
       ? '<span style="font-size:10px;background:#e0f2e9;color:#166534;padding:2px 6px;border-radius:4px">📝本文で確認</span>'
+      : t._platformResult === 'unknown'
+      ? '<span style="font-size:10px;background:#f3f4f6;color:#6b7280;padding:2px 6px;border-radius:4px">🔍判定不能</span>'
       : '';
 
     return `<div class="post" style="cursor:default">
