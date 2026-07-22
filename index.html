@@ -515,16 +515,16 @@ async function checkPlatformInReplies(tweetId, apiKey) {
       body: JSON.stringify({ id: tweetId, apiKey: apiKey || undefined })
     });
     const data = await res.json();
+    console.log('[reply-check] tweet=' + tweetId + ' raw response:', data);
     if (data.error) throw new Error(data.error);
     const comments = data.tweets || [];
-    const haystack = comments.map(c => {
-      const urlText = ((c.entities && c.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
-      return urlText + ' ' + (c.full_text || c.text || '');
-    }).join(' ');
+    const haystack = comments.map(buildLinkHaystack).join(' ');
     let result = 'none';
     if (RAKUTEN_LINK_DOMAINS_CHECK.some(d => haystack.includes(d))) result = 'rakuten';
     else if (AMAZON_LINK_DOMAINS.some(d => haystack.includes(d))) result = 'amazon';
-    console.log('[reply-check] tweet=' + tweetId + ' comments=' + comments.length + ' result=' + result);
+    console.log('[reply-check] tweet=' + tweetId + ' comments=' + comments.length
+      + ' urls=' + JSON.stringify(comments.flatMap(c => ((c.entities && c.entities.urls) || []).map(u => u.expanded_url || u.url)))
+      + ' result=' + result);
     state.replyCache[tweetId] = result;
     saveReplyCache();
     return result;
@@ -740,6 +740,19 @@ const AMAZON_LINK_DOMAINS = ['amzn.to', 'amzn.asia', 'amazon.co.jp'];
 // アカウント指定モードのプラットフォーム絞り込み判定用（rakuten.co.jp単体のリンクも拾う）
 const RAKUTEN_LINK_DOMAINS_CHECK = RAKUTEN_LINK_DOMAINS.concat(['rakuten.co.jp']);
 
+// 投稿（または1コメント）からリンク判定用のテキストを組み立てる。
+// リツイート/引用ツイートは自分自身の entities.urls が空で、リンクが
+// retweeted_status / quoted_status 側にだけ入っていることがあるため、両方を見る。
+function buildLinkHaystack(t) {
+  const objs = [t];
+  if (t.retweeted_status) objs.push(t.retweeted_status);
+  if (t.quoted_status) objs.push(t.quoted_status);
+  return objs.map(o => {
+    const urlText = ((o.entities && o.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
+    return urlText + ' ' + (o.full_text || o.text || '');
+  }).join(' ');
+}
+
 // ============ ① リサーチ ============
 async function runResearch() {
   const mode = document.querySelector('#searchModeChips .chip.on').dataset.mode;
@@ -864,11 +877,20 @@ async function runResearch() {
       const targetDomains = platform === 'rakuten' ? RAKUTEN_LINK_DOMAINS_CHECK : AMAZON_LINK_DOMAINS;
       const otherDomains = platform === 'rakuten' ? AMAZON_LINK_DOMAINS : RAKUTEN_LINK_DOMAINS_CHECK;
       tweets.forEach(t => {
-        const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
-        const haystack = urlText + ' ' + (t.full_text || t.text || '');
+        const haystack = buildLinkHaystack(t);
         if (targetDomains.some(d => haystack.includes(d))) { t._platformResult = platform; t._platformSource = 'body'; }
         else if (otherDomains.some(d => haystack.includes(d))) { t._platformResult = platform === 'rakuten' ? 'amazon' : 'rakuten'; t._platformSource = 'body'; }
         else { t._platformResult = 'unknown'; t._platformSource = null; }
+      });
+      // デバッグ用: 本文判定の詳細を1件ずつ出力（entities.urlsの実データを目視確認するため）
+      tweets.forEach(t => {
+        console.log('[platform-check body]', t.id_str, {
+          result: t._platformResult,
+          entities_urls: ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url),
+          retweeted_status_urls: t.retweeted_status ? ((t.retweeted_status.entities && t.retweeted_status.entities.urls) || []).map(u => u.expanded_url || u.url) : null,
+          quoted_status_urls: t.quoted_status ? ((t.quoted_status.entities && t.quoted_status.entities.urls) || []).map(u => u.expanded_url || u.url) : null,
+          full_text: (t.full_text || t.text || '').slice(0, 120)
+        });
       });
 
       // ②本文で判定できなかった投稿は、いいね数上位から上限件数までリプ欄を確認
@@ -884,15 +906,13 @@ async function runResearch() {
       console.log(`[reply-check] 完了。リプ確認対象=${candidates.length}件`);
 
       // ③選択したプラットフォームと確定した投稿だけ表示（上限を超えて未判定のものは除外）
+      const excluded = tweets.filter(t => t._platformResult !== platform);
+      if (excluded.length) console.log(`[platform-check] ${platform}以外と判定/未判定で除外=${excluded.length}件:`, excluded.map(t => ({ id: t.id_str, result: t._platformResult })));
       tweets = tweets.filter(t => t._platformResult === platform);
     } else if (mode === 'account' && platform === 'both' && document.getElementById('onlyAffiliateLinks').checked) {
       // 「両方」はリプ確認を行わない軽量ルート。本文のみで楽天/Amazonいずれかのリンクがあるものに絞る
       const linkDomains = RAKUTEN_LINK_DOMAINS_CHECK.concat(AMAZON_LINK_DOMAINS);
-      tweets = tweets.filter(t => {
-        const urlText = ((t.entities && t.entities.urls) || []).map(u => u.expanded_url || u.url || '').join(' ');
-        const haystack = urlText + ' ' + (t.full_text || t.text || '');
-        return linkDomains.some(d => haystack.includes(d));
-      });
+      tweets = tweets.filter(t => linkDomains.some(d => buildLinkHaystack(t).includes(d)));
     }
 
     state.research = tweets;
