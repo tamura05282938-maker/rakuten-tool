@@ -294,19 +294,37 @@
           <span>競合アカウントリスト（<span id="accountListCount">0</span>件登録 / <span id="accountSelectedCount">0</span>件選択中）</span>
         </label>
         <div class="row" style="margin-bottom:8px">
-          <input type="text" id="newAccountInput" placeholder="@なしでアカウント名を入力" style="flex:1">
+          <input type="text" id="newAccountId" placeholder="ID（@なし・必須）" style="flex:1">
+          <input type="text" id="newAccountName" placeholder="表示名（任意）" style="flex:1">
+          <input type="text" id="newAccountGenre" placeholder="ジャンル（任意）" list="genrePresetList" style="flex:1">
           <button class="btn btn-ghost btn-sm" onclick="addAccountToList()">＋追加</button>
+        </div>
+        <datalist id="genrePresetList">
+          <option value="ファッション">
+          <option value="便利グッズ">
+          <option value="コスメ・美容">
+          <option value="キッチン・日用品">
+          <option value="その他">
+        </datalist>
+        <div class="row" style="margin-bottom:8px;align-items:center">
+          <label class="field" style="max-width:220px;margin-bottom:0">
+            <span>ジャンルで絞り込み</span>
+            <select id="accountGenreFilter" onchange="renderAccountList()">
+              <option value="">すべて</option>
+            </select>
+          </label>
+          <button class="btn btn-ghost btn-sm" onclick="selectAllInGenreFilter()">このジャンルを全選択</button>
           <button class="btn btn-ghost btn-sm" onclick="selectAllAccounts()">全選択</button>
           <button class="btn btn-ghost btn-sm" onclick="deselectAllAccounts()">全解除</button>
         </div>
         <div class="row" style="align-items:flex-start">
-          <div class="field" style="flex:1;min-width:260px">
+          <div class="field" style="flex:1;min-width:280px">
             <span>登録済みアカウント</span>
-            <div id="accountListView" style="max-height:220px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px"></div>
+            <div id="accountListView" style="max-height:260px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px"></div>
           </div>
           <div class="field" style="flex:1;min-width:260px">
-            <span>一括編集（改行区切り、@なし）</span>
-            <textarea id="accountBulkEdit" rows="9" style="font-family:monospace;font-size:12px"></textarea>
+            <span>一括編集（1行1件、ID,表示名,ジャンル）</span>
+            <textarea id="accountBulkEdit" rows="9" style="font-family:monospace;font-size:12px" placeholder="yunnchan_926,ゆんちゃん,ファッション&#10;other_id,,便利グッズ&#10;id_only"></textarea>
             <button class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="saveBulkAccountList()">この内容で保存</button>
           </div>
         </div>
@@ -492,8 +510,8 @@ const state = {
   replyText: '',
   images: [],       // {url, selected, order}
   postedItems: JSON.parse(localStorage.getItem('rk_posted') || '[]'),
-  accountList: [],       // 競合アカウントリスト（rk_account_list）
-  accountSelected: new Set(), // 検索対象として選択中のアカウント名
+  accountList: [],       // 競合アカウントリスト（rk_account_list）: [{id, name, genre, checked}]
+  editingAccountId: null, // 一覧で編集中のアカウントID（nullなら編集中なし）
   replyCache: JSON.parse(localStorage.getItem('rk_reply_cache') || '{}'), // 投稿ID→'rakuten'|'amazon'|'none'|'error'
 };
 
@@ -504,35 +522,40 @@ function saveReplyCache() {
 }
 
 // リプ欄（コメント）を確認して楽天/Amazonドメインの有無を判定する。結果はキャッシュして再リクエストを避ける
-async function checkPlatformInReplies(tweetId, apiKey) {
+// リプ（スレッド内の投稿者本人の返信）を /search-tweets + conversation_id: 演算子で取得して判定する。
+// 専用の Get Tweet Comments エンドポイント（/tweet-comments）はSocialData側でアクセス制限されており
+// 全件エラーになることを確認したため、既に動作実績のある検索エンドポイントに切り替えた。
+async function checkPlatformInReplies(tweetId, screenName, apiKey) {
   // 'error' はキャッシュしない（一時的な失敗の可能性があり、再検索のたびにリトライできるようにする）
   if (state.replyCache[tweetId] && state.replyCache[tweetId] !== 'error') {
     console.log('[reply-check] tweet=' + tweetId + ' (キャッシュ) result=' + state.replyCache[tweetId]);
     return state.replyCache[tweetId];
   }
+  const query = `conversation_id:${tweetId} from:${screenName}`;
   try {
-    const res = await fetch(workerUrl() + '/tweet-comments', {
+    const res = await fetch(workerUrl() + '/search-tweets', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: tweetId, apiKey: apiKey || undefined })
+      body: JSON.stringify({ query, count: 20, apiKey: apiKey || undefined })
     });
     const data = await res.json();
     if (!res.ok || data.error) {
-      console.error('[reply-check] tweet=' + tweetId + ' API error: HTTP ' + res.status, data);
+      console.error('[reply-check] tweet=' + tweetId + ' query="' + query + '" API error: HTTP ' + res.status, data);
       throw new Error(data.error || ('HTTP ' + res.status));
     }
-    const comments = data.tweets || [];
-    const haystack = comments.map(buildLinkHaystack).join(' ');
+    // メイン投稿自身もスレッドの一部として返ってくるため、id_strで除外してリプのみに絞る
+    const replies = (data.tweets || []).filter(t => t.id_str !== tweetId);
+    const haystack = replies.map(buildLinkHaystack).join(' ');
     let result = 'none';
     if (RAKUTEN_LINK_DOMAINS_CHECK.some(d => haystack.includes(d))) result = 'rakuten';
     else if (AMAZON_LINK_DOMAINS.some(d => haystack.includes(d))) result = 'amazon';
-    console.log('[reply-check] tweet=' + tweetId + ' comments=' + comments.length
-      + ' urls=' + JSON.stringify(comments.flatMap(c => ((c.entities && c.entities.urls) || []).map(u => u.expanded_url || u.url)))
+    console.log('[reply-check] tweet=' + tweetId + ' query="' + query + '" replies=' + replies.length
+      + ' urls=' + JSON.stringify(replies.flatMap(c => ((c.entities && c.entities.urls) || []).map(u => u.expanded_url || u.url)))
       + ' result=' + result);
     state.replyCache[tweetId] = result;
     saveReplyCache();
     return result;
   } catch (e) {
-    console.warn('[reply-check] tweet=' + tweetId + ' failed:', e.message);
+    console.warn('[reply-check] tweet=' + tweetId + ' query="' + query + '" failed:', e.message);
     state.replyCache[tweetId] = 'error';
     saveReplyCache();
     return 'error';
@@ -579,9 +602,23 @@ const REPLY_PROMPT = `以下の投稿に続く、リプライ用の「商品は�
 {{POST}}`;
 
 // ============ 初期化 ============
-// ジャンルプリセット: 選択すると除外キーワード欄に自動セットされる語
 // アカウント指定モードで競合・お手本として観察する初期リスト
-const DEFAULT_ACCOUNT_LIST = ['yunnchan_926'];
+const DEFAULT_ACCOUNT_LIST = [{ id: 'yunnchan_926', name: '', genre: '', checked: true }];
+
+// 保存データを {id, name, genre, checked} 形式に正規化する。
+// 旧形式（IDの文字列配列）が残っていれば自動でオブジェクト形式に移行する。
+function normalizeAccountList(raw) {
+  if (!Array.isArray(raw)) return DEFAULT_ACCOUNT_LIST.slice();
+  return raw.map(item => {
+    if (typeof item === 'string') return { id: item, name: '', genre: '', checked: true };
+    return {
+      id: item.id || '',
+      name: item.name || '',
+      genre: item.genre || '',
+      checked: item.checked !== false,
+    };
+  }).filter(a => a.id);
+}
 
 function init() {
   // 設定復元
@@ -593,15 +630,14 @@ function init() {
   const p = localStorage.getItem('rk_prompt');
   document.getElementById('genPrompt').value = p || DEFAULT_PROMPT;
 
-  // 競合アカウントリスト復元（未設定時は初期リストを自動セット）
+  // 競合アカウントリスト復元（未設定時は初期リストを自動セット、旧形式は自動移行）
   const savedList = localStorage.getItem('rk_account_list');
   if (savedList !== null) {
-    try { state.accountList = JSON.parse(savedList); } catch (e) { state.accountList = DEFAULT_ACCOUNT_LIST.slice(); }
+    try { state.accountList = normalizeAccountList(JSON.parse(savedList)); } catch (e) { state.accountList = DEFAULT_ACCOUNT_LIST.slice(); }
   } else {
     state.accountList = DEFAULT_ACCOUNT_LIST.slice();
-    localStorage.setItem('rk_account_list', JSON.stringify(state.accountList));
   }
-  state.accountSelected = new Set(state.accountList); // 初期状態は全選択
+  saveAccountList(); // 移行後の形式で保存し直す
   renderAccountList();
 
   // stepper
@@ -637,71 +673,149 @@ function saveAccountList() {
   localStorage.setItem('rk_account_list', JSON.stringify(state.accountList));
 }
 
+function findAccount(id) {
+  return state.accountList.find(a => a.id === id);
+}
+
+// 一括編集欄の1行分（ID,表示名,ジャンル。表示名・ジャンルは省略可）を組み立てる
+function accountToBulkLine(a) {
+  return [a.id, a.name, a.genre].join(',').replace(/,+$/, '');
+}
+
 function renderAccountList() {
   const view = document.getElementById('accountListView');
+  const genreFilterSel = document.getElementById('accountGenreFilter');
   document.getElementById('accountListCount').textContent = state.accountList.length;
-  document.getElementById('accountSelectedCount').textContent = state.accountSelected.size;
+  document.getElementById('accountSelectedCount').textContent = state.accountList.filter(a => a.checked).length;
 
-  view.innerHTML = state.accountList.length
-    ? state.accountList.map(name => `
-      <div style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--line);font-size:13px">
-        <input type="checkbox" ${state.accountSelected.has(name) ? 'checked' : ''} onchange="toggleAccountSelected('${name.replace(/'/g,"")}', this.checked)">
-        <span style="flex:1">@${name.replace(/</g,'')}</span>
-        <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="deleteAccountFromList('${name.replace(/'/g,"")}')">削除</button>
-      </div>
-    `).join('')
-    : '<div class="empty" style="padding:8px;font-size:13px">未登録です。上の欄からアカウントを追加してください</div>';
+  // ジャンルフィルタのプルダウンを実データから同期（「すべて」は固定）
+  const genres = [...new Set(state.accountList.map(a => a.genre).filter(Boolean))].sort();
+  const currentFilter = genreFilterSel.value;
+  genreFilterSel.innerHTML = '<option value="">すべて</option>' + genres.map(g => `<option value="${g.replace(/</g,'')}">${g.replace(/</g,'')}</option>`).join('');
+  if (genres.includes(currentFilter)) genreFilterSel.value = currentFilter;
+  const genreFilter = genreFilterSel.value;
+
+  const visible = genreFilter ? state.accountList.filter(a => a.genre === genreFilter) : state.accountList;
+
+  view.innerHTML = visible.length
+    ? visible.map(a => {
+        if (state.editingAccountId === a.id) {
+          return `<div style="display:flex;align-items:center;gap:6px;padding:6px 2px;border-bottom:1px solid var(--line);font-size:12px;flex-wrap:wrap">
+            <input type="text" id="editName_${a.id}" value="${a.name.replace(/"/g,'')}" placeholder="表示名" style="flex:1;min-width:80px">
+            <input type="text" id="editGenre_${a.id}" value="${a.genre.replace(/"/g,'')}" placeholder="ジャンル" list="genrePresetList" style="flex:1;min-width:80px">
+            <button class="btn btn-primary btn-sm" style="padding:3px 8px" onclick="saveEditAccount('${a.id.replace(/'/g,"")}')">保存</button>
+            <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="cancelEditAccount()">キャンセル</button>
+          </div>`;
+        }
+        const label = a.name ? a.name.replace(/</g,'') : a.id.replace(/</g,'');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 2px;border-bottom:1px solid var(--line);font-size:13px">
+          <input type="checkbox" ${a.checked ? 'checked' : ''} onchange="toggleAccountSelected('${a.id.replace(/'/g,"")}', this.checked)">
+          <span style="flex:1">
+            ${label}${a.genre ? ` <span style="color:var(--sub);font-size:11px">（${a.genre.replace(/</g,'')}）</span>` : ''}
+            <span style="color:var(--sub);font-size:11px">@${a.id.replace(/</g,'')}</span>
+          </span>
+          <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="startEditAccount('${a.id.replace(/'/g,"")}')">編集</button>
+          <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="deleteAccountFromList('${a.id.replace(/'/g,"")}')">削除</button>
+        </div>`;
+      }).join('')
+    : '<div class="empty" style="padding:8px;font-size:13px">該当するアカウントがありません</div>';
 
   // 一括編集欄も同期（フォーカス中は上書きしない）
   const bulk = document.getElementById('accountBulkEdit');
-  if (document.activeElement !== bulk) bulk.value = state.accountList.join('\n');
+  if (document.activeElement !== bulk) bulk.value = state.accountList.map(accountToBulkLine).join('\n');
 }
 
 function addAccountToList() {
-  const input = document.getElementById('newAccountInput');
-  const name = input.value.trim().replace(/^@/, '');
-  if (!name) return;
-  if (!state.accountList.includes(name)) {
-    state.accountList.push(name);
-    state.accountSelected.add(name);
+  const idInput = document.getElementById('newAccountId');
+  const nameInput = document.getElementById('newAccountName');
+  const genreInput = document.getElementById('newAccountGenre');
+  const id = idInput.value.trim().replace(/^@/, '');
+  if (!id) return;
+  if (!findAccount(id)) {
+    state.accountList.push({ id, name: nameInput.value.trim(), genre: genreInput.value.trim(), checked: true });
     saveAccountList();
     renderAccountList();
   }
-  input.value = '';
+  idInput.value = ''; nameInput.value = ''; genreInput.value = '';
 }
 
-function deleteAccountFromList(name) {
-  state.accountList = state.accountList.filter(a => a !== name);
-  state.accountSelected.delete(name);
+function deleteAccountFromList(id) {
+  state.accountList = state.accountList.filter(a => a.id !== id);
   saveAccountList();
   renderAccountList();
 }
 
-function toggleAccountSelected(name, checked) {
-  if (checked) state.accountSelected.add(name);
-  else state.accountSelected.delete(name);
-  document.getElementById('accountSelectedCount').textContent = state.accountSelected.size;
+function toggleAccountSelected(id, checked) {
+  const a = findAccount(id);
+  if (a) a.checked = checked;
+  saveAccountList();
+  document.getElementById('accountSelectedCount').textContent = state.accountList.filter(a => a.checked).length;
 }
 
 function selectAllAccounts() {
-  state.accountSelected = new Set(state.accountList);
+  state.accountList.forEach(a => a.checked = true);
+  saveAccountList();
   renderAccountList();
 }
 
 function deselectAllAccounts() {
-  state.accountSelected = new Set();
+  state.accountList.forEach(a => a.checked = false);
+  saveAccountList();
+  renderAccountList();
+}
+
+function selectAllInGenreFilter() {
+  const genre = document.getElementById('accountGenreFilter').value;
+  state.accountList.forEach(a => { if (!genre || a.genre === genre) a.checked = true; });
+  saveAccountList();
+  renderAccountList();
+}
+
+function startEditAccount(id) {
+  state.editingAccountId = id;
+  renderAccountList();
+}
+
+function cancelEditAccount() {
+  state.editingAccountId = null;
+  renderAccountList();
+}
+
+function saveEditAccount(id) {
+  const a = findAccount(id);
+  if (a) {
+    a.name = document.getElementById('editName_' + id).value.trim();
+    a.genre = document.getElementById('editGenre_' + id).value.trim();
+  }
+  state.editingAccountId = null;
+  saveAccountList();
   renderAccountList();
 }
 
 function saveBulkAccountList() {
   const raw = document.getElementById('accountBulkEdit').value;
-  const names = raw.split('\n').map(s => s.trim().replace(/^@/, '')).filter(Boolean);
-  const deduped = [...new Set(names)];
-  state.accountList = deduped;
-  state.accountSelected = new Set(deduped); // 全件登録し直すため全選択に戻す
+  const existingById = new Map(state.accountList.map(a => [a.id, a]));
+  const parsed = raw.split('\n').map(line => {
+    const [idPart, namePart, genrePart] = line.split(',');
+    const id = (idPart || '').trim().replace(/^@/, '');
+    if (!id) return null;
+    const existing = existingById.get(id);
+    return {
+      id,
+      name: (namePart || '').trim(),
+      genre: (genrePart || '').trim(),
+      checked: existing ? existing.checked : true, // 既存アカウントは選択状態を維持、新規は選択済みにする
+    };
+  }).filter(Boolean);
+
+  // 同一IDが複数行にあれば後勝ちで重複除去
+  const dedupedMap = new Map();
+  parsed.forEach(a => dedupedMap.set(a.id, a));
+  state.accountList = [...dedupedMap.values()];
+
   saveAccountList();
   renderAccountList();
-  setStatus('researchStatus', `${deduped.length}件のアカウントリストを保存しました`, 'info');
+  setStatus('researchStatus', `${state.accountList.length}件のアカウントリストを保存しました`, 'info');
 }
 
 function goStep(n) {
@@ -762,7 +876,7 @@ async function runResearch() {
   const kw = document.getElementById('researchKeyword').value.trim();
   const minLikes = parseInt(document.getElementById('minLikes').value) || 0;
   const platform = document.querySelector('#platformChips .chip.on').dataset.platform;
-  const selectedAccounts = state.accountList.filter(a => state.accountSelected.has(a));
+  const selectedAccounts = state.accountList.filter(a => a.checked).map(a => a.id);
   if (mode === 'keyword' && !kw) { setStatus('researchStatus', 'キーワードを入力してください', 'err'); return; }
   if (mode === 'account' && !selectedAccounts.length) { setStatus('researchStatus', '検索するアカウントにチェックを入れてください', 'err'); return; }
 
@@ -904,7 +1018,7 @@ async function runResearch() {
       for (let i = 0; i < candidates.length; i++) {
         const t = candidates[i];
         setStatus('researchStatus', `リプ確認中... ${i + 1}/${candidates.length}件`, 'info');
-        const result = await checkPlatformInReplies(t.id_str, socialdataKey);
+        const result = await checkPlatformInReplies(t.id_str, (t.user && t.user.screen_name) || '', socialdataKey);
         if (result === 'rakuten' || result === 'amazon') { t._platformResult = result; t._platformSource = 'reply'; }
         else if (result === 'error') replyErrorCount++;
       }
@@ -967,6 +1081,17 @@ function renderResearch(kw) {
     // 元ポストURL（id_strを使用。数値idは桁溢れするため不可）
     const postUrl = `https://x.com/${encodeURIComponent(user.screen_name||'')}/status/${t.id_str}`;
 
+    // 競合アカウントリストに登録があれば「表示名（ジャンル）」を表示（IDは大文字小文字を無視して照合）
+    const registered = (user.screen_name || '') ? state.accountList.find(a => a.id.toLowerCase() === user.screen_name.toLowerCase()) : null;
+    let registeredLabel = '';
+    if (registered && (registered.name || registered.genre)) {
+      const displayName = (registered.name || registered.id).replace(/</g, '');
+      registeredLabel = registered.genre ? `${displayName}（${registered.genre.replace(/</g,'')}）` : displayName;
+    }
+    const registeredBadge = registeredLabel
+      ? `<span style="font-size:10px;background:#eef2ff;color:#3730a3;padding:2px 6px;border-radius:4px">${registeredLabel}</span>`
+      : '';
+
     // プラットフォーム判定バッジ（アカウント指定モードで楽天/Amazon単体選択時のみ付与される）
     const sourceBadge = t._platformSource === 'reply'
       ? '<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:2px 6px;border-radius:4px">🔁リプで確認</span>'
@@ -978,7 +1103,7 @@ function renderResearch(kw) {
 
     return `<div class="post" style="cursor:default">
       <div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:6px">
-        <b style="font-size:13px">@${(user.screen_name||'').replace(/</g,'')} ${sourceBadge}</b>
+        <b style="font-size:13px">@${(user.screen_name||'').replace(/</g,'')} ${registeredBadge} ${sourceBadge}</b>
         <span style="font-size:12px;color:var(--sub)">❤️ ${likes.toLocaleString()} / 🔁 ${rt.toLocaleString()}</span>
       </div>
       <div class="text" style="font-size:13px">${text}</div>
